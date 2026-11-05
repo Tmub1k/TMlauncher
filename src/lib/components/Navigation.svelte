@@ -95,20 +95,7 @@
 <aside
   class="sticky top-0 flex h-full w-56 shrink-0 flex-col justify-between border-r border-[var(--border-hairline)] bg-[var(--bg-canvas)]/90 p-3 backdrop-blur-2xl z-20 overflow-y-auto"
 >
-  <div class="space-y-6">
-    <!-- Brand Monogram Rail -->
-    <div class="flex items-center gap-2.5 px-2 pt-1">
-      <div
-        class="flex h-8 w-8 items-center justify-center rounded-lg bg-white font-mono text-[11px] font-black text-black shadow-md"
-      >
-        OL
-      </div>
-      <div>
-        <div class="font-sans text-xs font-black tracking-widest text-white">OMNI</div>
-        <div class="font-mono text-[9px] tracking-wider text-zinc-400">LAUNCHER</div>
-      </div>
-    </div>
-
+  <div class="space-y-4 pt-1">
     <!-- Flagship Primary Tabs -->
     <div class="space-y-1">
       {#each NAV_PRIMARY as item}

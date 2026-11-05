@@ -294,6 +294,28 @@ pub fn format_price_string(amount: f64, currency: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct SteamFeaturedItem {
+    id: u32,
+    name: String,
+    discount_percent: Option<u32>,
+    original_price: Option<u64>,
+    final_price: Option<u64>,
+    header_image: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SteamFeaturedCategory {
+    items: Option<Vec<SteamFeaturedItem>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SteamFeaturedResponse {
+    specials: Option<SteamFeaturedCategory>,
+    top_sellers: Option<SteamFeaturedCategory>,
+    new_releases: Option<SteamFeaturedCategory>,
+}
+
 #[tauri::command]
 pub async fn get_store_recommendations(
     page: usize,
@@ -310,9 +332,169 @@ pub async fn get_store_recommendations(
     let clean_query = query.as_deref().map(sanitize_search_query).unwrap_or_default().to_lowercase();
     let filter_tag = tag.as_deref().map(|t| t.trim()).unwrap_or("");
 
-    // Filter catalog
-    let filtered: Vec<&StaticStoreItem> = STORE_CATALOG
-        .iter()
+    // Build consolidated list starting with curated catalog
+    let mut all_candidates: Vec<StoreItem> = Vec::new();
+    let mut seen_app_ids = std::collections::HashSet::new();
+
+    let cdn_base = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps";
+
+    // 1. Try fetching real-time recommendations from Steam featured API
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(2500))
+        .build()
+        .ok();
+
+    if let Some(client) = http {
+        if let Ok(resp) = client
+            .get("https://store.steampowered.com/api/featuredcategories")
+            .header("Accept-Language", "ru,en;q=0.9")
+            .send()
+            .await
+        {
+            if let Ok(json) = resp.json::<SteamFeaturedResponse>().await {
+                let mut api_items = Vec::new();
+                if let Some(specials) = json.specials.and_then(|s| s.items) {
+                    api_items.extend(specials);
+                }
+                if let Some(top) = json.top_sellers.and_then(|s| s.items) {
+                    api_items.extend(top);
+                }
+                if let Some(new_rel) = json.new_releases.and_then(|s| s.items) {
+                    api_items.extend(new_rel);
+                }
+
+                for item in api_items {
+                    if seen_app_ids.contains(&item.id) {
+                        continue;
+                    }
+                    seen_app_ids.insert(item.id);
+
+                    let base_usd = item.original_price.map(|p| p as f64 / 100.0).unwrap_or(29.99);
+                    let discount = item.discount_percent.unwrap_or(0);
+                    let sale_usd = item.final_price.map(|p| p as f64 / 100.0).unwrap_or(base_usd);
+
+                    let price_raw = if curr == "KZT" {
+                        convert_price_to_kzt(sale_usd) as f64
+                    } else {
+                        sale_usd
+                    };
+                    let price_formatted = format_price_string(sale_usd, curr);
+
+                    let (orig_raw, orig_formatted) = if discount > 0 {
+                        let o_raw = if curr == "KZT" {
+                            convert_price_to_kzt(base_usd) as f64
+                        } else {
+                            base_usd
+                        };
+                        let o_fmt = format_price_string(base_usd, curr);
+                        (Some(o_raw), Some(o_fmt))
+                    } else {
+                        (None, None)
+                    };
+
+                    let header_img = item.header_image.unwrap_or_else(|| format!("{}/{}/header.jpg", cdn_base, item.id));
+                    let thumb_img = format!("{}/{}/capsule_231x87.jpg", cdn_base, item.id);
+                    let banner_img = format!("{}/{}/library_hero.jpg", cdn_base, item.id);
+
+                    all_candidates.push(StoreItem {
+                        app_id: item.id,
+                        title: item.name,
+                        price_raw,
+                        price_formatted,
+                        original_price_raw: orig_raw,
+                        original_price_formatted: orig_formatted,
+                        discount_percent: discount,
+                        thumbnail_url: thumb_img,
+                        header_image: Some(header_img),
+                        banner_url: Some(banner_img),
+                        tags: vec!["Featured".into(), "Steam".into()],
+                        review_score: Some("Very Positive".into()),
+                        media: Some(StoreMedia {
+                            screenshots: vec![format!("{}/{}/ss_1.jpg", cdn_base, item.id)],
+                            webm_video: None,
+                            mp4_video: None,
+                        }),
+                        short_description: Some("Популярная игра из официальных рекомендаций Steam Store.".into()),
+                        release_date: None,
+                        store_url: format!("https://store.steampowered.com/app/{}", item.id),
+                        install_uri: format!("steam://install/{}", item.id),
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. Add curated catalog items ensuring NO duplicates
+    for static_item in STORE_CATALOG {
+        if seen_app_ids.contains(&static_item.app_id) {
+            continue;
+        }
+        seen_app_ids.insert(static_item.app_id);
+
+        let base_usd = static_item.base_usd;
+        let discount = static_item.discount_pct;
+        let sale_usd = if discount > 0 {
+            let final_price = base_usd * (1.0 - (discount as f64 / 100.0));
+            (final_price * 100.0).round() / 100.0
+        } else {
+            base_usd
+        };
+
+        let price_raw = if curr == "KZT" {
+            convert_price_to_kzt(sale_usd) as f64
+        } else {
+            sale_usd
+        };
+        let price_formatted = format_price_string(sale_usd, curr);
+
+        let (orig_raw, orig_formatted) = if discount > 0 {
+            let o_raw = if curr == "KZT" {
+                convert_price_to_kzt(base_usd) as f64
+            } else {
+                base_usd
+            };
+            let o_fmt = format_price_string(base_usd, curr);
+            (Some(o_raw), Some(o_fmt))
+        } else {
+            (None, None)
+        };
+
+        let app_id = static_item.app_id;
+        let header_img = format!("{}/{}/header.jpg", cdn_base, app_id);
+        let thumb_img = format!("{}/{}/capsule_231x87.jpg", cdn_base, app_id);
+        let banner_img = format!("{}/{}/library_hero.jpg", cdn_base, app_id);
+
+        all_candidates.push(StoreItem {
+            app_id,
+            title: static_item.title.to_string(),
+            price_raw,
+            price_formatted,
+            original_price_raw: orig_raw,
+            original_price_formatted: orig_formatted,
+            discount_percent: discount,
+            thumbnail_url: thumb_img,
+            header_image: Some(header_img),
+            banner_url: Some(banner_img),
+            tags: static_item.tags.iter().map(|&t| t.to_string()).collect(),
+            review_score: Some(static_item.review_score.to_string()),
+            media: Some(StoreMedia {
+                screenshots: vec![
+                    format!("{}/{}/ss_1.jpg", cdn_base, app_id),
+                    format!("{}/{}/ss_2.jpg", cdn_base, app_id),
+                ],
+                webm_video: Some(static_item.mp4_video.to_string()),
+                mp4_video: Some(static_item.mp4_video.to_string()),
+            }),
+            short_description: Some(static_item.short_desc.to_string()),
+            release_date: Some(static_item.release_date.to_string()),
+            store_url: format!("https://store.steampowered.com/app/{}", app_id),
+            install_uri: format!("steam://install/{}", app_id),
+        });
+    }
+
+    // 3. Apply filters
+    let filtered: Vec<StoreItem> = all_candidates
+        .into_iter()
         .filter(|item| {
             if !clean_query.is_empty() && !item.title.to_lowercase().contains(&clean_query) {
                 return false;
@@ -324,7 +506,6 @@ pub async fn get_store_recommendations(
         })
         .collect();
 
-    // Loop catalog if needed to provide true infinite scrolling up to 10 pages
     let page_size = 6;
     let max_pages = 10;
 
@@ -350,90 +531,13 @@ pub async fn get_store_recommendations(
         });
     }
 
-    // Multiply catalog items to simulate infinite recommendation depth
     let start_idx = page * page_size;
-    let total_virtual_items = max_pages * page_size;
-    let total_pages = (total_virtual_items + page_size - 1) / page_size;
-
-    let mut page_items = Vec::new();
     let catalog_len = filtered.len();
+    let page_items: Vec<StoreItem> = (0..page_size)
+        .map(|i| filtered[(start_idx + i) % catalog_len].clone())
+        .collect();
 
-    for i in 0..page_size {
-        let global_idx = start_idx + i;
-        if global_idx >= total_virtual_items {
-            break;
-        }
-        let static_item = filtered[global_idx % catalog_len];
-
-        let base_usd = static_item.base_usd;
-        let discount = static_item.discount_pct;
-
-        let sale_usd = if discount > 0 {
-            let final_price = base_usd * (1.0 - (discount as f64 / 100.0));
-            (final_price * 100.0).round() / 100.0
-        } else {
-            base_usd
-        };
-
-        let price_raw = if curr == "KZT" {
-            convert_price_to_kzt(sale_usd) as f64
-        } else {
-            sale_usd
-        };
-
-        let price_formatted = format_price_string(sale_usd, curr);
-
-        let (orig_raw, orig_formatted) = if discount > 0 {
-            let o_raw = if curr == "KZT" {
-                convert_price_to_kzt(base_usd) as f64
-            } else {
-                base_usd
-            };
-            let o_fmt = format_price_string(base_usd, curr);
-            (Some(o_raw), Some(o_fmt))
-        } else {
-            (None, None)
-        };
-
-        let app_id = static_item.app_id;
-        let cdn_base = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps";
-        let header_img = format!("{}/{}/header.jpg", cdn_base, app_id);
-        let thumb_img = format!("{}/{}/capsule_231x87.jpg", cdn_base, app_id);
-        let banner_img = format!("{}/{}/library_hero.jpg", cdn_base, app_id);
-
-        let screenshots = vec![
-            format!("{}/{}/ss_1.jpg", cdn_base, app_id),
-            format!("{}/{}/ss_2.jpg", cdn_base, app_id),
-        ];
-
-        let media = StoreMedia {
-            screenshots,
-            webm_video: Some(static_item.mp4_video.to_string()),
-            mp4_video: Some(static_item.mp4_video.to_string()),
-        };
-
-        page_items.push(StoreItem {
-            app_id,
-            title: static_item.title.to_string(),
-            price_raw,
-            price_formatted,
-            original_price_raw: orig_raw,
-            original_price_formatted: orig_formatted,
-            discount_percent: discount,
-            thumbnail_url: thumb_img,
-            header_image: Some(header_img),
-            banner_url: Some(banner_img),
-            tags: static_item.tags.iter().map(|&t| t.to_string()).collect(),
-            review_score: Some(static_item.review_score.to_string()),
-            media: Some(media),
-            short_description: Some(static_item.short_desc.to_string()),
-            release_date: Some(static_item.release_date.to_string()),
-            store_url: format!("https://store.steampowered.com/app/{}", app_id),
-            install_uri: format!("steam://install/{}", app_id),
-        });
-    }
-
-    let has_more = page + 1 < total_pages;
+    let has_more = page + 1 < max_pages;
     let end_message = if !has_more {
         Some("You have caught up with all current recommendations".to_string())
     } else {
@@ -445,7 +549,7 @@ pub async fn get_store_recommendations(
         currency: curr.to_string(),
         items: page_items,
         has_more,
-        total_pages,
+        total_pages: max_pages,
         end_message,
     })
 }

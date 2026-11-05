@@ -176,16 +176,18 @@ pub struct RobloxPlace {
 
 struct MutexGuardHandle {
     #[cfg(windows)]
-    raw_handle: isize,
+    handles: Vec<isize>,
 }
 
 #[cfg(windows)]
 impl Drop for MutexGuardHandle {
     fn drop(&mut self) {
-        if self.raw_handle != 0 {
-            unsafe {
-                windows_sys::Win32::System::Threading::ReleaseMutex(self.raw_handle as _);
-                windows_sys::Win32::Foundation::CloseHandle(self.raw_handle as _);
+        for handle in &self.handles {
+            if *handle != 0 {
+                unsafe {
+                    windows_sys::Win32::System::Threading::ReleaseMutex(*handle as _);
+                    windows_sys::Win32::Foundation::CloseHandle(*handle as _);
+                }
             }
         }
     }
@@ -388,23 +390,28 @@ impl RobloxPlatform {
 
         #[cfg(windows)]
         {
-            use windows_sys::Win32::Foundation::GetLastError;
             use windows_sys::Win32::System::Threading::CreateMutexW;
 
-            let mut wide: Vec<u16> = "ROBLOX_singletonMutex".encode_utf16().collect();
-            wide.push(0);
+            let mut acquired = Vec::new();
 
-            let handle = unsafe { CreateMutexW(std::ptr::null(), 1, wide.as_ptr()) };
-            if handle.is_null() {
-                let code = unsafe { GetLastError() };
-                return Err(LauncherError::WinApi(format!(
-                    "CreateMutexW(ROBLOX_singletonMutex) failed with Win32 error {code}"
-                )));
+            for name in ["ROBLOX_singletonMutex", "ROBLOX_singletonEvent"] {
+                let mut wide: Vec<u16> = name.encode_utf16().collect();
+                wide.push(0);
+
+                let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
+                if !handle.is_null() {
+                    acquired.push(handle as isize);
+                }
             }
-            *guard = Some(MutexGuardHandle {
-                raw_handle: handle as isize,
-            });
-            tracing::info!("acquired ROBLOX_singletonMutex for multi-instance mode");
+
+            if acquired.is_empty() {
+                return Err(LauncherError::WinApi(
+                    "Не удалось инициализировать дескриптор Multi-Roblox".into(),
+                ));
+            }
+
+            *guard = Some(MutexGuardHandle { handles: acquired });
+            tracing::info!("acquired Roblox multi-instance handles");
             Ok(true)
         }
 
@@ -612,6 +619,51 @@ impl RobloxPlatform {
             }
         }
 
+        // Batch resolve real thumbnail image URLs for all discovered places
+        let place_ids: Vec<u64> = places_map.keys().copied().collect();
+        if !place_ids.is_empty() {
+            let ids_param = place_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let thumb_api = format!(
+                "https://thumbnails.roblox.com/v1/places/gameicons?placeIds={}&size=512x512&format=Png&isCircular=false",
+                ids_param
+            );
+            if let Ok(resp) = self.http.get(&thumb_api).send().await {
+                #[derive(Deserialize)]
+                struct ThumbItem {
+                    #[serde(rename = "targetId")]
+                    target_id: u64,
+                    #[serde(rename = "imageUrl")]
+                    image_url: Option<String>,
+                }
+                #[derive(Deserialize)]
+                struct ThumbResponse {
+                    data: Option<Vec<ThumbItem>>,
+                }
+                if let Ok(json) = resp.json::<ThumbResponse>().await {
+                    if let Some(data) = json.data {
+                        for item in data {
+                            if let Some(raw_img) = item.image_url {
+                                // For users in Russian Federation, wrap with Cloudflare weserv cache to bypass tr.rbxcdn.com blocks
+                                let proxied_url = if raw_img.contains("rbxcdn.com") {
+                                    let stripped = raw_img.trim_start_matches("https://").trim_start_matches("http://");
+                                    format!("https://images.weserv.nl/?url={}&w=512&h=512&fit=cover", stripped)
+                                } else {
+                                    raw_img
+                                };
+                                if let Some(p) = places_map.get_mut(&item.target_id) {
+                                    p.thumbnail_url = Some(proxied_url);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let mut list: Vec<RobloxPlace> = places_map.into_values().collect();
         list.sort_by(|a, b| b.last_played_timestamp.cmp(&a.last_played_timestamp));
         Ok(list)
@@ -632,6 +684,8 @@ impl PlatformConnector for RobloxPlatform {
         let version_dir = Self::locate_version_dir()?;
         let exe = version_dir.join("RobloxPlayerBeta.exe");
 
+        let mut games = Vec::new();
+
         let mut player = Game::new(PlatformKind::Roblox, "player", "Roblox");
         player.installed = true;
         player.install_dir = Some(version_dir);
@@ -639,21 +693,51 @@ impl PlatformConnector for RobloxPlatform {
         player.tags = vec!["Bootstrapper".into(), "FastFlags".into(), "Multi-Instance".into()];
         player.art = Artwork {
             poster: Some(ArtRef::Remote(
-                "https://images.rbxcdn.com/c83761712c58384892d63501cad3a1ee".into(),
+                "https://images.weserv.nl/?url=images.rbxcdn.com/c83761712c58384892d63501cad3a1ee&w=512&h=512&fit=cover".into(),
             )),
             hero: None,
             logo: None,
             icon: None,
         };
+        games.push(player);
 
-        Ok(vec![player])
+        // Include recently played Roblox places directly in Library
+        if let Ok(places) = self.get_recent_places().await {
+            for place in places {
+                let mut game = Game::new(
+                    PlatformKind::Roblox,
+                    format!("place_{}", place.place_id),
+                    place.name,
+                );
+                game.installed = true;
+                game.tags = vec!["Roblox Place".into(), "Recently Played".into()];
+                game.last_played = Some(
+                    chrono::DateTime::from_timestamp(place.last_played_timestamp, 0)
+                        .unwrap_or_else(|| chrono::Utc::now()),
+                );
+                if let Some(thumb) = place.thumbnail_url {
+                    game.art = Artwork {
+                        poster: Some(ArtRef::Remote(thumb)),
+                        hero: None,
+                        logo: None,
+                        icon: None,
+                    };
+                }
+                games.push(game);
+            }
+        }
+
+        Ok(games)
     }
 
     async fn launch_game(&self, native_id: &str) -> Result<LaunchHandle> {
         let game_id = GameId::new(PlatformKind::Roblox, native_id);
 
-        // Support `place:<placeId>` deep links as well as raw numeric place IDs.
-        if let Some(place_id) = native_id.strip_prefix("place:") {
+        // Support `place_<placeId>`, `place:<placeId>` deep links as well as raw numeric place IDs.
+        if let Some(place_id) = native_id
+            .strip_prefix("place_")
+            .or_else(|| native_id.strip_prefix("place:"))
+        {
             let pid: u64 = place_id.trim().parse().map_err(|_| {
                 LauncherError::InvalidInput(format!("invalid Roblox PlaceId `{place_id}`"))
             })?;

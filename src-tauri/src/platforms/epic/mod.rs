@@ -345,13 +345,22 @@ impl PlatformConnector for EpicPlatform {
     }
 
     async fn detect_installed_games(&self) -> Result<Vec<Game>> {
-        let dir = self.locate_manifests_dir()?;
-        let manifests = tokio::task::spawn_blocking(move || Self::scan_manifests_blocking(dir)).await??;
+        let dir = self.locate_manifests_dir().ok();
+        let manifests = if let Some(d) = dir {
+            tokio::task::spawn_blocking(move || Self::scan_manifests_blocking(d))
+                .await
+                .unwrap_or(Ok(Vec::new()))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         let mut cache = self.manifest_cache.write().await;
         cache.clear();
 
         let mut games = Vec::with_capacity(manifests.len());
+        let mut seen = std::collections::HashSet::new();
+
         for m in manifests {
             let exe = m.executable_path();
             let is_ready = !m.is_incomplete_install && exe.exists();
@@ -360,8 +369,21 @@ impl PlatformConnector for EpicPlatform {
             game.install_dir = Some(m.install_location.clone());
             game.executable = Some(exe);
             game.size_bytes = m.install_size;
+            seen.insert(m.app_name.clone());
             cache.insert(m.app_name.clone(), m);
             games.push(game);
+        }
+
+        // Include user's uninstalled Epic library games discovered from manifests/logs/cache
+        if let Ok(uninstalled) = self.fetch_epic_library(true).await {
+            for eg in uninstalled {
+                if !seen.contains(&eg.app_name) {
+                    seen.insert(eg.app_name.clone());
+                    let mut game = Game::new(PlatformKind::Epic, eg.app_name.clone(), eg.display_name.clone());
+                    game.installed = eg.installed;
+                    games.push(game);
+                }
+            }
         }
 
         Ok(games)

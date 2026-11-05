@@ -25,7 +25,32 @@
     }
   });
 
+  async function openInWebview() {
+    try {
+      await invoke('open_in_app_store_window', { url, title });
+      onClose();
+    } catch (e) {
+      console.error('Failed to open native store window:', e);
+    }
+  }
+
+  async function openInBrowser() {
+    try {
+      await invoke('open_external_url', { url });
+      onClose();
+    } catch {
+      window.open(url, '_blank');
+      onClose();
+    }
+  }
+
   async function loadPage() {
+    // Epic Games and Cloudflare-protected sites cannot be embedded inside an iframe srcdoc without WAF blocks
+    if (url.includes('epicgames.com') || url.includes('steamcommunity.com')) {
+      await openInWebview();
+      return;
+    }
+
     loading = true;
     srcdocContent = null;
     try {
@@ -85,8 +110,26 @@
 
           <button
             type="button"
+            onclick={openInWebview}
+            class="btn-chrome px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 text-white"
+            title="Открыть во встроенном отдельном окне"
+          >
+            ❐ Окно Webview
+          </button>
+
+          <button
+            type="button"
+            onclick={openInBrowser}
+            class="btn-minimal px-3 py-1.5 text-xs text-zinc-300 hover:text-white"
+            title="Открыть в основном браузере"
+          >
+            В браузере ↗
+          </button>
+
+          <button
+            type="button"
             onclick={reloadIframe}
-            class="btn-minimal px-3.5 py-1.5 text-xs"
+            class="btn-minimal px-3 py-1.5 text-xs"
             title="Обновить страницу"
           >
             ↻ Обновить

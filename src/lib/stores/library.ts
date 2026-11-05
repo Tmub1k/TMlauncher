@@ -219,6 +219,13 @@ export const inAppStore = {
 };
 
 export function openInAppStore(url: string, title = 'Store', installUri?: string): void {
+  // If it's Epic Games or Steam profile, directly open the high-fidelity native webview window
+  if (url.includes('epicgames.com') || url.includes('steamcommunity.com')) {
+    invoke('open_in_app_store_window', { url, title }).catch(() => {
+      inAppStore.open(url, title, installUri);
+    });
+    return;
+  }
   inAppStore.open(url, title, installUri);
 }
 

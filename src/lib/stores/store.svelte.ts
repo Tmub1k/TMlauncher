@@ -120,9 +120,16 @@ class StoreFeedStore {
       });
 
       if (append) {
-        this.items = [...this.items, ...res.items];
+        const seen = new Set(this.items.map((i) => i.app_id));
+        const uniqueNew = res.items.filter((i) => !seen.has(i.app_id));
+        this.items = [...this.items, ...uniqueNew];
       } else {
-        this.items = res.items;
+        const seen = new Set<number>();
+        this.items = res.items.filter((i) => {
+          if (seen.has(i.app_id)) return false;
+          seen.add(i.app_id);
+          return true;
+        });
       }
 
       this.page = res.page;

@@ -196,11 +196,16 @@ pub async fn get_unified_library(
     registry: State<'_, Arc<PlatformRegistry>>,
 ) -> Result<Vec<UnifiedGame>> {
     let games = registry.cached_games().await;
-    let all_games = if games.is_empty() {
+    let mut all_games = if games.is_empty() {
         registry.scan_all().await.games
     } else {
         games
     };
+
+    let custom = crate::commands::custom_games::custom_games_to_platform_games(
+        crate::commands::custom_games::load_custom_games_blocking(),
+    );
+    all_games.extend(custom);
 
     let mut groups: HashMap<String, Vec<Game>> = HashMap::new();
     for g in all_games {

@@ -71,27 +71,8 @@
   data-tauri-drag-region
   class="relative z-50 flex h-11 w-full select-none items-center justify-between border-b border-[var(--border-hairline)] bg-[var(--bg-canvas)]/85 px-3.5 backdrop-blur-xl"
 >
-  <!-- Left Zone: Identity & Live Connection Status -->
-  <div data-tauri-drag-region class="flex items-center gap-2.5">
-    <!-- Brand Monogram -->
-    <div
-      class="flex h-6 w-6 items-center justify-center rounded-md bg-white font-mono text-[10px] font-black text-black shadow-sm"
-    >
-      OL
-    </div>
-
-    <!-- App Title & Subtitle -->
-    <span class="font-sans text-xs font-black tracking-widest text-white">OMNI</span>
-
-    <!-- Hairline Separator -->
-    <div class="h-3 w-px bg-white/10"></div>
-
-    <!-- Live Status Pip -->
-    <div class="flex items-center gap-1.5 font-mono text-[10px] tracking-wider text-zinc-400">
-      <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span>
-      <span class="hidden sm:inline">ONLINE</span>
-    </div>
-  </div>
+  <!-- Left Zone: Drag Handle Area -->
+  <div data-tauri-drag-region class="flex items-center gap-2.5 h-full flex-1"></div>
 
   <!-- Center Zone: Quick Theme Switcher Pill -->
   <div class="relative flex items-center">
@@ -135,31 +116,8 @@
     {/if}
   </div>
 
-  <!-- Right Zone: Steam Profile & Window Controls -->
+  <!-- Right Zone: Window Controls & Eco Mode -->
   <div class="flex items-center gap-2">
-    {#if steamProfile}
-      <a
-        href={steamProfile.profile_url}
-        target="_blank"
-        rel="noreferrer"
-        onclick={(e) => {
-          e.preventDefault();
-          openInAppStore(steamProfile?.profile_url || '', steamProfile?.persona_name || 'Steam Profile');
-        }}
-        title={`Steam: ${steamProfile.persona_name} (${steamProfile.steam_id})`}
-        class="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-xs text-zinc-300 hover:border-white/20 hover:text-white hover:bg-white/10 transition-all"
-      >
-        <img
-          src={steamProfile.avatar_url}
-          alt={steamProfile.persona_name}
-          class="h-3.5 w-3.5 rounded-full object-cover"
-          onerror={(e) => {
-            (e.currentTarget as HTMLImageElement).src = 'https://avatars.steamstatic.com/sample_full.jpg';
-          }}
-        />
-        <span class="max-w-[90px] truncate text-[10px] font-medium font-mono">{steamProfile.persona_name}</span>
-      </a>
-    {/if}
 
     <!-- Handheld & Laptop Eco Mode Toggle -->
     <button

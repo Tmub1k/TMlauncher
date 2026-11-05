@@ -111,3 +111,13 @@ pub async fn open_in_app_store_window(
     let _ = win.set_focus();
     Ok(())
 }
+
+#[tauri::command]
+pub async fn open_external_url(url: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let _ = open::that_detached(&url);
+    })
+    .await
+    .map_err(|e| LauncherError::Launch(e.to_string()))?;
+    Ok(())
+}

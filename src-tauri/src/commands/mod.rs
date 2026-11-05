@@ -1,5 +1,6 @@
 //! Tauri IPC command handlers exposed to the Svelte 5 frontend.
 
+pub mod custom_games;
 pub mod deals;
 pub mod emulators;
 pub mod game_mode;

@@ -126,14 +126,44 @@ impl Default for CaptureConfig {
     }
 }
 
-/// Prefer a bundled sidecar (`ffmpeg.exe` next to the launcher), else `PATH`.
+/// Prefer a bundled sidecar (`ffmpeg.exe` next to the launcher or in LocalAppData), else system `PATH`.
 fn default_ffmpeg_path() -> PathBuf {
     let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|dir| dir.join(exe_name)))
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| PathBuf::from(exe_name))
+
+    // 1. Next to current launcher executable or in a bin/ subfolder
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            let candidate = dir.join(exe_name);
+            if candidate.exists() {
+                return candidate;
+            }
+            let bin_candidate = dir.join("bin").join(exe_name);
+            if bin_candidate.exists() {
+                return bin_candidate;
+            }
+        }
+    }
+
+    // 2. In LocalAppData/OmniLauncher/bin/
+    if let Some(data) = dirs::data_local_dir() {
+        let local_candidate = data.join("OmniLauncher").join("bin").join(exe_name);
+        if local_candidate.exists() {
+            return local_candidate;
+        }
+    }
+
+    // 3. Known standard system paths on Windows
+    for known in [
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        r"C:\ProgramData\chocolatey\bin\ffmpeg.exe",
+    ] {
+        let p = PathBuf::from(known);
+        if p.exists() {
+            return p;
+        }
+    }
+
+    PathBuf::from(exe_name)
 }
 
 // ---------------------------------------------------------------------------

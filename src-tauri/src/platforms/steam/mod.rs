@@ -1039,19 +1039,13 @@ impl SteamPlatform {
             }
         }
 
-        // Populate with known titles dictionary
-        for (id, title) in KNOWN_STEAM_TITLES {
-            app_names.entry(*id).or_insert_with(|| title.to_string());
-        }
-
-        // Check persistent names cache from disk
+        // Load persistent names cache strictly as a name lookup dictionary, not as ownership candidates
+        let mut names_cache: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
         if let Some(data_dir) = dirs::data_dir() {
             let cache_file = data_dir.join("OmniLauncher").join("steam_names_cache.json");
             if let Ok(content) = std::fs::read_to_string(&cache_file) {
                 if let Ok(map) = serde_json::from_str::<std::collections::HashMap<u32, String>>(&content) {
-                    for (k, v) in map {
-                        app_names.entry(k).or_insert(v);
-                    }
+                    names_cache = map;
                 }
             }
         }
@@ -1067,14 +1061,18 @@ impl SteamPlatform {
                 continue;
             }
 
-            let name = app_names.get(&app_id).cloned().unwrap_or_else(|| {
-                // Check if known in KNOWN_STEAM_TITLES
-                KNOWN_STEAM_TITLES
-                    .iter()
-                    .find(|(id, _)| *id == app_id)
-                    .map(|(_, t)| t.to_string())
-                    .unwrap_or_else(|| format!("Steam App #{app_id}"))
-            });
+            let name = app_names
+                .get(&app_id)
+                .cloned()
+                .or_else(|| names_cache.get(&app_id).cloned())
+                .unwrap_or_else(|| {
+                    // Check if known in KNOWN_STEAM_TITLES
+                    KNOWN_STEAM_TITLES
+                        .iter()
+                        .find(|(id, _)| *id == app_id)
+                        .map(|(_, t)| t.to_string())
+                        .unwrap_or_else(|| format!("Steam App #{app_id}"))
+                });
 
             let mut game = Game::new(PlatformKind::Steam, app_id.to_string(), name);
             game.installed = false;

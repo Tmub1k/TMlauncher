@@ -41,7 +41,83 @@
 
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Extended Curated Experiences Roster (24+ Iconic Modes)
+  // Roblox Multi-Account Profiles for Bootstrapper
+  interface RobloxAccount {
+    id: string;
+    username: string;
+    displayName: string;
+    isActive: boolean;
+  }
+
+  let accounts = $state<RobloxAccount[]>([]);
+  let newAccountUsername = $state('');
+  let isAddingAccount = $state(false);
+
+  function loadAccounts() {
+    try {
+      const saved = localStorage.getItem('omni_roblox_accounts');
+      if (saved) {
+        accounts = JSON.parse(saved);
+      } else {
+        accounts = [
+          { id: 'acc_default', username: 'Current User', displayName: 'Текущий профиль Windows', isActive: true },
+        ];
+      }
+    } catch {
+      accounts = [
+        { id: 'acc_default', username: 'Current User', displayName: 'Текущий профиль Windows', isActive: true },
+      ];
+    }
+  }
+
+  function saveAccounts() {
+    try {
+      localStorage.setItem('omni_roblox_accounts', JSON.stringify(accounts));
+    } catch {}
+  }
+
+  function selectAccount(id: string) {
+    accounts = accounts.map((a) => ({ ...a, isActive: a.id === id }));
+    saveAccounts();
+    const active = accounts.find((a) => a.isActive);
+    statusBanner = `Аккаунт переключен: ${active?.displayName || active?.username}`;
+  }
+
+  function addAccount() {
+    const name = newAccountUsername.trim();
+    if (!name) return;
+    const newAcc: RobloxAccount = {
+      id: `acc_${Date.now()}`,
+      username: name,
+      displayName: name,
+      isActive: false,
+    };
+    accounts = [...accounts, newAcc];
+    saveAccounts();
+    newAccountUsername = '';
+    isAddingAccount = false;
+    selectAccount(newAcc.id);
+  }
+
+  function removeAccount(id: string) {
+    if (accounts.length <= 1) return;
+    accounts = accounts.filter((a) => a.id !== id);
+    if (!accounts.some((a) => a.isActive)) {
+      accounts[0].isActive = true;
+    }
+    saveAccounts();
+  }
+
+  function proxyRobloxImg(url: string | null | undefined): string {
+    if (!url) {
+      return 'https://images.weserv.nl/?url=tr.rbxcdn.com/180DAY-b4d24a9e525166299b9ba89953ad7ff3/150/150/Image/Webp/noFilter';
+    }
+    if (url.includes('tr.rbxcdn.com') || url.includes('images.rbxcdn.com')) {
+      const stripped = url.replace(/^https?:\/\//, '');
+      return `https://images.weserv.nl/?url=${encodeURIComponent(stripped)}&w=300&h=300&fit=cover`;
+    }
+    return url;
+  }
   const FALLBACK_MODES: RobloxExperiencePreset[] = [
     {
       placeId: 2753915549,
@@ -172,6 +248,7 @@
   ];
 
   onMount(async () => {
+    loadAccounts();
     try {
       const [f, m, exp, activePlace] = await Promise.all([
         invoke<FastFlagMap>('roblox_get_fast_flags').catch(() => ({})),
@@ -303,6 +380,83 @@
     </div>
   {/if}
 
+  <!-- Roblox Bootstrapper Account Selector -->
+  <div class="panel-game p-5">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="rounded bg-red-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-red-400">
+            BOOTSTRAPPER PROFILES
+          </span>
+          <h3 class="text-sm font-black text-white">Выбор аккаунта Roblox</h3>
+        </div>
+        <p class="text-xs text-zinc-400 mt-0.5">
+          Переключайтесь между профилями для запуска клиента и мультиинстанса.
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        {#each accounts as acc}
+          <div
+            class="flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs transition-all {acc.isActive
+              ? 'border-2 border-red-500 bg-red-500/20 text-white font-bold shadow-md shadow-red-500/10'
+              : 'border border-white/10 bg-white/5 text-zinc-400 hover:border-white/25 hover:text-white'}"
+          >
+            <button
+              type="button"
+              onclick={() => selectAccount(acc.id)}
+              class="flex items-center gap-2"
+            >
+              <span class="h-2 w-2 rounded-full {acc.isActive ? 'bg-red-400 shadow-[0_0_8px_#f87171]' : 'bg-zinc-600'}"></span>
+              <span>{acc.displayName}</span>
+            </button>
+            {#if accounts.length > 1 && !acc.isActive}
+              <button
+                type="button"
+                onclick={() => removeAccount(acc.id)}
+                class="ml-1 text-zinc-500 hover:text-red-400 text-[10px]"
+                title="Удалить профиль"
+              >✕</button>
+            {/if}
+          </div>
+        {/each}
+
+        {#if !isAddingAccount}
+          <button
+            type="button"
+            onclick={() => (isAddingAccount = true)}
+            class="rounded-xl border border-dashed border-white/20 bg-white/5 px-3 py-1.5 text-xs text-zinc-400 hover:border-white/40 hover:text-white"
+          >
+            + Аккаунт
+          </button>
+        {:else}
+          <div class="flex items-center gap-1.5">
+            <input
+              type="text"
+              bind:value={newAccountUsername}
+              placeholder="Имя профиля..."
+              class="w-32 rounded-lg border border-red-400 bg-black/60 px-2.5 py-1 text-xs text-white outline-none"
+            />
+            <button
+              type="button"
+              onclick={addAccount}
+              class="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-bold text-white hover:bg-red-600"
+            >
+              OK
+            </button>
+            <button
+              type="button"
+              onclick={() => (isAddingAccount = false)}
+              class="text-zinc-500 hover:text-white px-1"
+            >
+              ✕
+            </button>
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+
   <!-- Direct Place Launcher (Custom URL or Place ID) -->
   <div class="panel-game p-5">
     <div class="flex flex-wrap items-center justify-between gap-4">
@@ -381,7 +535,7 @@
           <div>
             <div class="flex items-center gap-3">
               <img
-                src={exp.iconUrl}
+                src={proxyRobloxImg(exp.iconUrl)}
                 alt={exp.title}
                 loading="lazy"
                 class="h-14 w-14 rounded-xl object-cover border-2 border-white/10 shadow-md group-hover:scale-105 transition-transform"

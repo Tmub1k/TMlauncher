@@ -20,11 +20,15 @@ use crate::EVT_LIBRARY_UPDATED;
 
 #[tauri::command]
 pub async fn get_library(registry: State<'_, Arc<PlatformRegistry>>) -> Result<Vec<Game>> {
-    let cached = registry.cached_games().await;
-    if !cached.is_empty() {
-        return Ok(cached);
+    let mut games = registry.cached_games().await;
+    if games.is_empty() {
+        games = registry.scan_all().await.games;
     }
-    Ok(registry.scan_all().await.games)
+    let custom = crate::commands::custom_games::custom_games_to_platform_games(
+        crate::commands::custom_games::load_custom_games_blocking(),
+    );
+    games.extend(custom);
+    Ok(games)
 }
 
 #[tauri::command]
@@ -32,7 +36,11 @@ pub async fn refresh_library(
     app: AppHandle,
     registry: State<'_, Arc<PlatformRegistry>>,
 ) -> Result<ScanReport> {
-    let report = registry.scan_all().await;
+    let mut report = registry.scan_all().await;
+    let custom = crate::commands::custom_games::custom_games_to_platform_games(
+        crate::commands::custom_games::load_custom_games_blocking(),
+    );
+    report.games.extend(custom);
     let _ = app.emit(EVT_LIBRARY_UPDATED, &report);
     Ok(report)
 }
@@ -43,6 +51,19 @@ pub async fn launch_game(
     registry: State<'_, Arc<PlatformRegistry>>,
     runner: State<'_, Arc<ProcessRunner>>,
 ) -> Result<LaunchHandle> {
+    if game_id.native_id.starts_with("custom_") {
+        let _ = crate::commands::custom_games::launch_custom_game(game_id.native_id.clone()).await?;
+        return Ok(LaunchHandle {
+            game_id: game_id.clone(),
+            method: crate::core::platform::LaunchMethod::Executable {
+                path: std::path::PathBuf::new(),
+                args: Vec::new(),
+            },
+            pid: None,
+            started_at: chrono::Utc::now(),
+        });
+    }
+
     let existing = registry.find(&game_id).await;
     let title = existing
         .as_ref()

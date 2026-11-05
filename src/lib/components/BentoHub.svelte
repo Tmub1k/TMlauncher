@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import Navigation, { type NavSection } from './Navigation.svelte';
   import GameCard from './GameCard.svelte';
   import RouletteModal from './RouletteModal.svelte';
@@ -232,6 +233,35 @@
     };
   });
 
+  // Custom / Third-Party Games
+  let customGameModalOpen = $state(false);
+  let customGameTitle = $state('');
+  let customGamePath = $state('');
+  let customGameCover = $state('');
+  let addingCustomGame = $state(false);
+
+  async function handleAddCustomGame() {
+    if (!customGamePath.trim()) return;
+    addingCustomGame = true;
+    try {
+      await invoke('add_custom_game', {
+        name: customGameTitle.trim() || '',
+        executablePath: customGamePath.trim(),
+        launchArguments: null,
+        coverUrl: customGameCover.trim() || null,
+      });
+      customGameModalOpen = false;
+      customGameTitle = '';
+      customGamePath = '';
+      customGameCover = '';
+      await handleRefresh();
+    } catch (err: any) {
+      alert(`Ошибка добавления стороннего приложения: ${err?.message || err}`);
+    } finally {
+      addingCustomGame = false;
+    }
+  }
+
   // ---- Actions --------------------------------------------------------------
   async function handleRefresh() {
     loading = true;
@@ -355,6 +385,16 @@
           <option value="acrylic">Acrylic</option>
           <option value="none">Тёмный стиль</option>
         </select>
+
+        <button
+          type="button"
+          onclick={() => (customGameModalOpen = true)}
+          class="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:border-white/30 hover:bg-white/20"
+          title="Добавить стороннюю игру или приложение в библиотеку"
+        >
+          <span>+</span>
+          <span>Добавить игру</span>
+        </button>
 
         <button
           type="button"
@@ -716,3 +756,84 @@
 
 <!-- In-Launcher Drive & Directory Selector Modal -->
 <DirectoryPickerModal />
+
+<!-- Add Custom / Non-Steam Game Modal -->
+{#if customGameModalOpen}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
+    role="dialog"
+    aria-modal="true"
+  >
+    <div class="chrome-card relative w-full max-w-lg rounded-2xl border border-white/15 bg-[#121215] p-6 shadow-2xl">
+      <div class="flex items-center justify-between pb-4 border-b border-white/10">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <span>+</span>
+          <span>Добавить стороннее приложение</span>
+        </h3>
+        <button
+          type="button"
+          onclick={() => (customGameModalOpen = false)}
+          class="text-zinc-400 hover:text-white"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="space-y-4 py-4 text-xs">
+        <div>
+          <label class="block font-medium text-zinc-300 mb-1">
+            Путь к исполняемому файлу (.exe / .lnk / .bat) <span class="text-red-400">*</span>
+          </label>
+          <input
+            type="text"
+            bind:value={customGamePath}
+            placeholder="C:\Games\MyGame\game.exe"
+            class="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 font-mono text-xs text-white placeholder-zinc-500 outline-none focus:border-white/30"
+          />
+        </div>
+
+        <div>
+          <label class="block font-medium text-zinc-300 mb-1">
+            Название игры (необязательно)
+          </label>
+          <input
+            type="text"
+            bind:value={customGameTitle}
+            placeholder="Будет определено из файла если пусто"
+            class="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-white/30"
+          />
+        </div>
+
+        <div>
+          <label class="block font-medium text-zinc-300 mb-1">
+            URL обложки / постера (необязательно)
+          </label>
+          <input
+            type="text"
+            bind:value={customGameCover}
+            placeholder="https://... или путь к картинке"
+            class="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-white/30"
+          />
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-4 border-t border-white/10">
+        <button
+          type="button"
+          onclick={() => (customGameModalOpen = false)}
+          class="btn-minimal px-4 py-2 text-xs"
+        >
+          Отмена
+        </button>
+        <button
+          type="button"
+          onclick={handleAddCustomGame}
+          disabled={!customGamePath.trim() || addingCustomGame}
+          class="btn-chrome px-5 py-2 text-xs font-bold bg-white text-black hover:bg-zinc-200 disabled:opacity-40"
+        >
+          {addingCustomGame ? 'Добавление...' : 'Добавить в библиотеку'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

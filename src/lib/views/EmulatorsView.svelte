@@ -9,11 +9,20 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { emulatorStore, type EmulatorCatalogEntry } from '$lib/stores/emulators';
   import { directoryPicker } from '$lib/stores/filesystem';
 
   let installingId = $state<string | null>(null);
   let statusMessage = $state<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  async function openUrl(url: string) {
+    try {
+      await invoke('open_external_url', { url });
+    } catch {
+      window.open(url, '_blank');
+    }
+  }
 
   onMount(() => {
     emulatorStore.init();
@@ -192,7 +201,7 @@
           <div class="flex flex-wrap items-center gap-2 pt-1 font-mono text-[10px] text-zinc-400">
             <span>By: <span class="text-zinc-300">{emu.author}</span></span>
             <span>•</span>
-            <span>Repo: <a href="https://github.com/{emu.repo}" target="_blank" class="text-zinc-300 hover:underline">{emu.repo}</a></span>
+            <span>Repo: <a href="https://github.com/{emu.repo}" onclick={(e) => { e.preventDefault(); openUrl(`https://github.com/${emu.repo}`); }} class="text-zinc-300 hover:underline">{emu.repo}</a></span>
           </div>
 
           <!-- Formats Chips -->
@@ -234,13 +243,13 @@
         <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
           <div class="flex items-center gap-2">
             {#if emu.website}
-              <a
-                href={emu.website}
-                target="_blank"
-                class="text-xs text-zinc-400 hover:text-white transition-colors"
+              <button
+                type="button"
+                onclick={() => openUrl(emu.website)}
+                class="text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer"
               >
                 Website ↗
-              </a>
+              </button>
             {/if}
           </div>
 

@@ -38,7 +38,16 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis"],
+    "publisher": "OmniLauncher",
+    "copyright": "Copyright © 2026 OmniLauncher",
+    "category": "Game",
+    "shortDescription": "OmniLauncher Gaming Hub",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "icon": ["icons/icon.png", "icons/icon.ico"]
   }
 }
