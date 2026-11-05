@@ -1,0 +1,24 @@
+{
+  "id": "steam-material-noir",
+  "name": "Steam Material Noir",
+  "author": "OmniLauncher Community",
+  "version": "1.0.0",
+  "variables": {
+    "--bg-canvas": "#09090b",
+    "--bg-surface-1": "#121215",
+    "--bg-surface-2": "#18181b",
+    "--bg-surface-3": "#27272a",
+    "--border-subtle": "rgba(255, 255, 255, 0.08)",
+    "--border-active": "rgba(255, 255, 255, 0.25)",
+    "--text-primary": "#fafafa",
+    "--text-secondary": "#a1a1aa",
+    "--text-muted": "#52525b",
+    "--accent": "#ffffff",
+    "--accent-contrast": "#000000",
+    "--elevation-shadow": "0 10px 30px -10px rgba(0, 0, 0, 0.8)",
+    "--glow-hover": "0 0 20px rgba(255, 255, 255, 0.12)",
+    "--card-radius": "14px",
+    "--poster-filter": "grayscale(85%) contrast(110%)",
+    "--poster-filter-hover": "grayscale(0%) contrast(100%)"
+  }
+}

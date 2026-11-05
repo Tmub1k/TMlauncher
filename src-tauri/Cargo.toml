@@ -1,0 +1,78 @@
+[package]
+name = "omnilauncher"
+version = "0.1.0"
+description = "OmniLauncher — unified open-source game launcher & library manager"
+authors = ["OmniLauncher Community"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+# `_lib` suffix avoids a Windows name clash between the bin and lib artifacts.
+name = "omnilauncher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# By default, embed `../dist` assets so `cargo build` produces a standalone binary
+# that works without a running Vite dev server (`tauri dev` passes `--no-default-features`).
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# --- App shell -------------------------------------------------------------
+tauri = { version = "2", features = ["protocol-asset"] }
+# Tauri's official wrapper around the `global-hotkey` crate (same engine, but it
+# owns the hidden message window on the main thread for us).
+tauri-plugin-global-shortcut = "2"
+
+# --- Async / errors --------------------------------------------------------
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+thiserror = "2"
+
+# --- Serialization ---------------------------------------------------------
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+keyvalues-parser = "0.2"
+keyvalues-serde = "0.2"
+discord-rich-presence = "0.2.5"
+sha2 = "0.10"
+md-5 = "0.10"
+hex = "0.4"
+
+# --- Networking / utils ----------------------------------------------------
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "socks", "stream"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+open = "5"
+regex = "1"
+image = { version = "0.25", default-features = false, features = ["png", "webp"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+window-vibrancy = "0.6"
+# Pinned to the 1.4 line: the GraphicsCaptureApiHandler / Settings signatures
+# changed in 1.5. See `core/media_capture.rs::gpu_grab`.
+windows-capture = "~1.4"
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_Storage_FileSystem",
+] }
+
+[profile.release]
+# Footprint-oriented release profile (idle RAM budget for the core process).
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

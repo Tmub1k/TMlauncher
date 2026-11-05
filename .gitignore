@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+.svelte-kit/
+
+# Rust build target
+src-tauri/target/
+target/
+
+# Local data & logs
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+
+# Large binary releases (distributed via GitHub Releases)
+*.exe
+!OmniLauncher_Setup.exe

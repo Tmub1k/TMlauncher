@@ -1,0 +1,89 @@
+{
+  "cssVars": {
+    "passed": false,
+    "details": [
+      {
+        "file": "src\\lib\\components\\GamePropertiesModal.svelte",
+        "varName": "--bg-card",
+        "fallback": "#18181b"
+      }
+    ]
+  },
+  "htmlMarkup": {
+    "passed": true,
+    "details": []
+  },
+  "skeuomorphism": {
+    "passed": true,
+    "details": {
+      "pushBordersInCss": false,
+      "legacyClassesInSvelte": [
+        {
+          "file": "src\\lib\\components\\DealsRadar.svelte",
+          "matches": [
+            "btn-game",
+            "btn-game-white",
+            "btn-game-green",
+            "btn-game-dark"
+          ]
+        },
+        {
+          "file": "src\\lib\\components\\FriendsList.svelte",
+          "matches": [
+            "btn-game",
+            "btn-game-white",
+            "btn-game-green",
+            "btn-game-dark"
+          ]
+        },
+        {
+          "file": "src\\lib\\components\\ItchStoreShowcase.svelte",
+          "matches": [
+            "btn-game",
+            "btn-game-dark",
+            "btn-game-red"
+          ]
+        },
+        {
+          "file": "src\\lib\\components\\MediaGallery.svelte",
+          "matches": [
+            "btn-game",
+            "btn-game-white",
+            "btn-game-red",
+            "btn-game-dark",
+            "btn-game-gold"
+          ]
+        },
+        {
+          "file": "src\\lib\\components\\RobloxStudioPanel.svelte",
+          "matches": [
+            "btn-game",
+            "btn-game-red",
+            "btn-game-green",
+            "btn-game-dark",
+            "btn-game-white"
+          ]
+        },
+        {
+          "file": "src\\lib\\components\\SteamStoreShowcase.svelte",
+          "matches": [
+            "btn-game",
+            "btn-game-dark",
+            "btn-game-blue"
+          ]
+        }
+      ]
+    }
+  },
+  "themeFallbacks": {
+    "passed": true,
+    "details": [
+      {
+        "scenario": "cross-theme token leakage on partial omission",
+        "leaked": false,
+        "leakedToken": "--accent-chrome",
+        "value": "linear-gradient(135deg, #f5f5f5 0%, #a1a1aa 50%, #52525b 100%)"
+      }
+    ]
+  }
+}

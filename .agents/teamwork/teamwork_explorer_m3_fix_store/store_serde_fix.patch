@@ -1,0 +1,132 @@
+--- a/src-tauri/src/commands/store.rs
++++ b/src-tauri/src/commands/store.rs
+@@ -16,9 +16,8 @@ pub struct StoreMedia {
+ }
+ 
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+-#[serde(rename_all = "camelCase")]
+ pub struct StoreItem {
+     pub app_id: u32,
+     pub title: String,
+     pub price_raw: f64,
+     pub price_formatted: String,
+@@ -38,9 +37,8 @@ pub struct StoreItem {
+ }
+ 
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+-#[serde(rename_all = "camelCase")]
+ pub struct StorePage {
+     pub page: usize,
+     pub currency: String,
+     pub items: Vec<StoreItem>,
+     pub has_more: bool,
+--- a/src-tauri/tests/m3_unit_tests.rs
++++ b/src-tauri/tests/m3_unit_tests.rs
+@@ -3,9 +3,10 @@
+ //! drive & directory validation, and network settings parsing.
+ 
+ use omnilauncher_lib::commands::store::{
+-    convert_price_to_kzt, format_price_string, sanitize_search_query, FIXED_EXCHANGE_RATE,
++    convert_price_to_kzt, format_price_string, get_store_recommendations, sanitize_search_query,
++    FIXED_EXCHANGE_RATE,
+ };
+ 
+ #[test]
+ fn test_currency_conversion_and_rounding() {
+@@ -93,3 +94,69 @@ fn test_proxy_uri_regex_validation() {
+     assert!(re.captures("not_a_url").is_none());
+ }
++
++#[tokio::test]
++async fn test_store_page_and_item_snake_case_serialization() {
++    let page = get_store_recommendations(0, Some("USD".to_string()), None, None, None)
++        .await
++        .expect("get_store_recommendations should succeed");
++
++    let json_str = serde_json::to_string(&page).expect("Serialization to JSON should succeed");
++    let val: serde_json::Value = serde_json::from_str(&json_str).expect("Parsing serialized JSON should succeed");
++
++    // 1. Verify StorePage fields are serialized in snake_case
++    assert_eq!(val["has_more"], true, "StorePage must contain snake_case key 'has_more'");
++    assert!(val.get("hasMore").is_none(), "StorePage must NOT contain camelCase key 'hasMore'");
++    assert_eq!(val["total_pages"], 10, "StorePage must contain snake_case key 'total_pages'");
++    assert!(val.get("totalPages").is_none(), "StorePage must NOT contain camelCase key 'totalPages'");
++    assert_eq!(val["page"], 0);
++    assert_eq!(val["currency"], "USD");
++
++    // 2. Verify StoreItem elements serialize in snake_case
++    let items = val["items"].as_array().expect("items must be an array");
++    assert!(!items.is_empty(), "StorePage items must not be empty");
++
++    let item = &items[0];
++    assert!(item.get("app_id").is_some(), "StoreItem missing 'app_id'");
++    assert!(item.get("appId").is_none(), "StoreItem must NOT contain camelCase 'appId'");
++    assert!(item["app_id"].as_u64().unwrap() > 0);
++
++    assert!(item.get("price_raw").is_some(), "StoreItem missing 'price_raw'");
++    assert!(item.get("priceRaw").is_none(), "StoreItem must NOT contain camelCase 'priceRaw'");
++
++    assert!(item.get("price_formatted").is_some(), "StoreItem missing 'price_formatted'");
++    assert!(item.get("priceFormatted").is_none(), "StoreItem must NOT contain camelCase 'priceFormatted'");
++
++    assert!(item.get("original_price_raw").is_some(), "StoreItem missing 'original_price_raw'");
++    assert!(item.get("originalPriceRaw").is_none(), "StoreItem must NOT contain camelCase 'originalPriceRaw'");
++
++    assert!(item.get("original_price_formatted").is_some(), "StoreItem missing 'original_price_formatted'");
++    assert!(item.get("originalPriceFormatted").is_none(), "StoreItem must NOT contain camelCase 'originalPriceFormatted'");
++
++    assert!(item.get("discount_percent").is_some(), "StoreItem missing 'discount_percent'");
++    assert!(item.get("discountPercent").is_none(), "StoreItem must NOT contain camelCase 'discountPercent'");
++
++    assert!(item.get("thumbnail_url").is_some(), "StoreItem missing 'thumbnail_url'");
++    assert!(item.get("thumbnailUrl").is_none(), "StoreItem must NOT contain camelCase 'thumbnailUrl'");
++
++    assert!(item.get("header_image").is_some(), "StoreItem missing 'header_image'");
++    assert!(item.get("headerImage").is_none(), "StoreItem must NOT contain camelCase 'headerImage'");
++
++    assert!(item.get("banner_url").is_some(), "StoreItem missing 'banner_url'");
++    assert!(item.get("bannerUrl").is_none(), "StoreItem must NOT contain camelCase 'bannerUrl'");
++
++    assert!(item.get("review_score").is_some(), "StoreItem missing 'review_score'");
++    assert!(item.get("reviewScore").is_none(), "StoreItem must NOT contain camelCase 'reviewScore'");
++
++    assert!(item.get("short_description").is_some(), "StoreItem missing 'short_description'");
++    assert!(item.get("shortDescription").is_none(), "StoreItem must NOT contain camelCase 'shortDescription'");
++
++    assert!(item.get("release_date").is_some(), "StoreItem missing 'release_date'");
++    assert!(item.get("releaseDate").is_none(), "Unexpected camelCase 'releaseDate'");
++
++    assert!(item.get("store_url").is_some(), "StoreItem missing 'store_url'");
++    assert!(item.get("storeUrl").is_none(), "Unexpected camelCase 'storeUrl'");
++
++    assert!(item.get("install_uri").is_some(), "StoreItem missing 'install_uri'");
++    assert!(item.get("installUri").is_none(), "Unexpected camelCase 'installUri'");
++
++    // 3. Verify nested StoreMedia preserves camelCase for Svelte component compatibility
++    if let Some(media) = item.get("media").and_then(|m| m.as_object()) {
++        assert!(media.get("mp4Video").is_some(), "StoreMedia must preserve 'mp4Video' for StoreView.svelte");
++    }
++}
+--- a/tests/tier1_features/f12_infinite_store.test.cjs
++++ b/tests/tier1_features/f12_infinite_store.test.cjs
+@@ -25,6 +25,19 @@ describe('Tier 1 - Feature 12: Steam Store Infinite Recommendations', () => {
+   });
+ 
++  it('Rejects camelCase payload to protect contract against regression', () => {
++    const camelCasePayload = {
++      page: 1,
++      currency: 'USD',
++      items: [{ appId: 1091500, title: 'Cyberpunk 2077', priceRaw: 59.99, priceFormatted: '$59.99', thumbnailUrl: '...' }],
++      hasMore: true,
++    };
++    let threw = false;
++    try {
++      validateStorePage(camelCasePayload);
++    } catch (err) {
++      threw = true;
++      ok(err.message.includes('has_more'), 'Must reject missing has_more');
++    }
++    ok(threw, 'validateStorePage must reject camelCase payload');
++  });
++
+   it('Calculates discounted price and discount percentage accurately', () => {

@@ -1,0 +1,253 @@
+@import "tailwindcss";
+@import "./chrome.css";
+
+:root {
+  /* Surface & Canvas (TURA Graphite Base) */
+  --bg-canvas: #09090b;
+  --bg-surface: #121215;
+  --bg-surface-base: #121215;
+  --bg-surface-1: #121215;
+  --bg-surface-2: #18181c;
+  --bg-surface-3: #202026;
+  --bg-surface-elevated: #18181c;
+  --bg-surface-floating: #202026;
+  --bg-surface-glass: rgba(18, 18, 21, 0.75);
+
+  /* Liquid Chrome Visual Accents */
+  --chrome-gradient: linear-gradient(180deg, #32353c 0%, #17181c 100%);
+  --chrome-border: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.03) 100%);
+  --chrome-specular: rgba(255, 255, 255, 0.45);
+  --chrome-ribbon: linear-gradient(90deg, #4b5161 0%, #f3f6fa 45%, #cbd3e1 55%, #1f2127 100%);
+
+  /* Hairlines & Borders */
+  --border-hairline: rgba(255, 255, 255, 0.06);
+  --border-subtle: rgba(255, 255, 255, 0.10);
+  --border-active: rgba(255, 255, 255, 0.30);
+  --border-specular: rgba(255, 255, 255, 0.60);
+
+  /* Editorial Typography */
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+  --text-accent: #f4f4f5;
+
+  /* Accents */
+  --accent: #ffffff;
+  --accent-contrast: #09090b;
+  --accent-primary: #ffffff;
+  --accent-primary-contrast: #09090b;
+  --accent-metallic: #d4d8e2;
+  --accent-chrome: linear-gradient(135deg, #f5f5f5 0%, #a1a1aa 50%, #52525b 100%);
+  --accent-glow: 0 0 24px rgba(255, 255, 255, 0.10);
+
+  /* Status Tokens */
+  --status-success: #10b981;
+  --status-warning: #f59e0b;
+  --status-danger: #ef4444;
+  --status-info: #0ea5e9;
+
+  /* Elevation & Shadows */
+  --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.8);
+  --shadow-card-hover: 0 20px 40px -12px rgba(0, 0, 0, 0.95), 0 0 24px rgba(255, 255, 255, 0.08);
+  --shadow-modal: 0 25px 60px -15px rgba(0, 0, 0, 0.95);
+  --shadow-specular: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  --elevation-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.8);
+  --glow-hover: 0 0 20px rgba(255, 255, 255, 0.12);
+
+  /* Geometry & Radii */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-full: 9999px;
+  --card-radius: 16px;
+
+  /* Fonts */
+  --font-sans: 'Cera CY', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-heading-tracking: 0.08em;
+  --font-heading-weight: 800;
+
+  /* Poster Filters */
+  --poster-filter: grayscale(65%) contrast(108%) brightness(95%);
+  --poster-filter-hover: grayscale(0%) contrast(102%) brightness(100%);
+  --backdrop-blur: 20px;
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background-color: var(--bg-canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  user-select: none;
+}
+
+html[data-vibrancy="none"] body {
+  background-color: var(--bg-canvas);
+}
+
+/* ==========================================================================
+   Modern Minimalist Button & Container Overrides
+   Eliminated legacy 3D push styles (thick 5px bottom borders, cartoonish bevels).
+   ========================================================================== */
+
+/* Modernized action buttons with sleek 1px hairlines */
+.btn-game {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  padding: 0.45rem 1rem;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.btn-game:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  border-color: var(--border-active);
+}
+
+.btn-game:active {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
+
+.btn-game:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-game-green {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-game-blue {
+  background: linear-gradient(180deg, #0284c7 0%, #0369a1 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-game-gold {
+  background: linear-gradient(180deg, #d97706 0%, #b45309 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.btn-game-red {
+  background: linear-gradient(180deg, #dc2626 0%, #991b1b 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-game-dark {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.btn-game-white {
+  background: #ffffff;
+  color: #09090b;
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+/* Modern Minimalist Surface Panels */
+.panel-game {
+  position: relative;
+  background: var(--bg-surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-modal);
+  backdrop-filter: blur(var(--backdrop-blur));
+}
+
+.panel-header-pill {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 16px;
+  border-radius: var(--radius-full);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  z-index: 30;
+}
+
+.btn-close-game {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  z-index: 40;
+}
+
+.btn-close-game:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  transform: scale(1.05);
+}
+
+.stat-box-game {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* --- Handheld & Laptop Eco Mode (Battery Saver) --- */
+:root[data-eco="true"] {
+  --bg-canvas: #000000 !important;
+  --bg-surface: #050505 !important;
+  --bg-surface-base: #080808 !important;
+  --bg-surface-elevated: #0d0d0d !important;
+  --backdrop-blur: 0px !important;
+}
+
+:root[data-eco="true"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  backdrop-filter: none !important;
+}
+
