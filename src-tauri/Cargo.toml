@@ -1,6 +1,6 @@
 [package]
 name = "omnilauncher"
-version = "0.1.0"
+version = "0.1.2"
 description = "OmniLauncher — unified open-source game launcher & library manager"
 authors = ["OmniLauncher Community"]
 license = "MIT"
