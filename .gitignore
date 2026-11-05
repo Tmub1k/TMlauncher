@@ -21,4 +21,5 @@ Thumbs.db
 
 # Large binary releases (distributed via GitHub Releases)
 *.exe
-!OmniLauncher_Setup.exe
+OmniLauncher/
+.agents/

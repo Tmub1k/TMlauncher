@@ -551,6 +551,7 @@ impl RobloxPlatform {
         log_files.truncate(25);
 
         let re_join_full = Regex::new(r"Joining place (\d+) \[(.+)\] with universe (\d+)").expect("regex");
+        let re_join_game = Regex::new(r"! Joining game '[^']+' place (\d+)").expect("regex");
         let re_place_simple = Regex::new(r"(?i)placeid[:=\s]+(\d{5,})").expect("regex");
         let re_network_place = Regex::new(r"(?i)placeId:\s*(\d{5,})").expect("regex");
 
@@ -594,7 +595,11 @@ impl RobloxPlatform {
                 }
             }
 
-            for cap in re_network_place.captures_iter(&raw).chain(re_place_simple.captures_iter(&raw)) {
+            for cap in re_network_place
+                .captures_iter(&raw)
+                .chain(re_place_simple.captures_iter(&raw))
+                .chain(re_join_game.captures_iter(&raw))
+            {
                 if let Some(pid_match) = cap.get(1) {
                     if let Ok(place_id) = pid_match.as_str().parse::<u64>() {
                         places_map
@@ -656,6 +661,30 @@ impl RobloxPlatform {
                                 };
                                 if let Some(p) = places_map.get_mut(&item.target_id) {
                                     p.thumbnail_url = Some(proxied_url);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Resolve proper game titles for any places still having fallback names
+            for place in places_map.values_mut() {
+                if place.name.starts_with("Roblox Experience #") || place.name.starts_with("Roblox Place #") {
+                    let u_url = format!("https://apis.roblox.com/universes/v1/places/{}/universe", place.place_id);
+                    if let Ok(resp) = self.http.get(&u_url).send().await {
+                        if let Ok(lookup) = resp.json::<UniverseLookup>().await {
+                            if let Some(uid) = lookup.universe_id {
+                                place.universe_id = Some(uid);
+                                let d_url = format!("https://games.roblox.com/v1/games?universeIds={uid}");
+                                if let Ok(d_resp) = self.http.get(&d_url).send().await {
+                                    if let Ok(envelope) = d_resp.json::<GamesDetailEnvelope>().await {
+                                        if let Some(item) = envelope.data.into_iter().next() {
+                                            if !item.name.trim().is_empty() {
+                                                place.name = item.name;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

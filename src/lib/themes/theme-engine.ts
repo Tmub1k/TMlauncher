@@ -17,12 +17,20 @@ import turaGraphiteJson from './tura-graphite.json';
 import liquidChromeJson from './liquid-chrome.json';
 import obsidianPureJson from './obsidian-pure.json';
 import cyberAuroraJson from './cyber-aurora.json';
+import glassJson from './glass.json';
+import whiteGlassJson from './white-glass.json';
+import greenJson from './green.json';
+import yellowJson from './yellow.json';
 
 export const BUILTIN_THEMES: Record<string, ThemeDefinition> = {
   'tura-graphite': turaGraphiteJson as unknown as ThemeDefinition,
   'liquid-chrome': liquidChromeJson as unknown as ThemeDefinition,
   'obsidian-pure': obsidianPureJson as unknown as ThemeDefinition,
   'cyber-aurora': cyberAuroraJson as unknown as ThemeDefinition,
+  'glass': glassJson as unknown as ThemeDefinition,
+  'white-glass': whiteGlassJson as unknown as ThemeDefinition,
+  'green': greenJson as unknown as ThemeDefinition,
+  'yellow': yellowJson as unknown as ThemeDefinition,
 };
 
 export const DEFAULT_THEME_ID = 'tura-graphite';

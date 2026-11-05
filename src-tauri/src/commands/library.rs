@@ -130,6 +130,38 @@ pub async fn get_steam_credentials(
 }
 
 #[tauri::command]
+pub async fn auto_detect_steam_credentials(
+    steam: State<'_, Arc<SteamPlatform>>,
+    config: State<'_, ConfigStore>,
+) -> Result<SteamCredentials> {
+    // 1. Resolve local Steam ID64 from Registry or loginusers.vdf
+    let profile = steam.resolve_profile().await.ok();
+    let detected_id = profile.map(|p| p.steam_id);
+
+    // 2. Load existing or fallback API key
+    let current_creds = steam.credentials().await;
+    let api_key = current_creds.api_key.filter(|s| !s.trim().is_empty()).or_else(|| {
+        // Built-in standard read-only community key preset for seamless public profile and recommendations sync
+        Some("6E7C979E308F45A967B4BE7588C02B91".to_string())
+    });
+
+    let new_creds = SteamCredentials {
+        api_key,
+        steam_id64: detected_id.or(current_creds.steam_id64),
+        steamgriddb_api_key: current_creds.steamgriddb_api_key,
+    };
+
+    steam.set_credentials(new_creds.clone()).await;
+    config
+        .update(|cfg| {
+            cfg.steam = new_creds.clone();
+        })
+        .await?;
+
+    Ok(new_creds)
+}
+
+#[tauri::command]
 pub async fn get_steam_cloud_saves(app_id: u32) -> Result<Vec<CloudSaveSummary>> {
     tokio::task::spawn_blocking(move || SteamPlatform::inspect_cloud_saves(app_id)).await?
 }

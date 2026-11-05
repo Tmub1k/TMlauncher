@@ -19,7 +19,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::core::platform::{Game, PlatformRegistry};
+use crate::core::platform::{Game, PlatformKind, PlatformRegistry};
 use crate::error::{LauncherError, Result};
 use crate::platforms::{
     epic::{EpicGame, EpicPlatform},
@@ -209,9 +209,19 @@ pub async fn get_unified_library(
 
     let mut groups: HashMap<String, Vec<Game>> = HashMap::new();
     for g in all_games {
+        // For Roblox places, preserve unique place identity
+        if g.id.platform == PlatformKind::Roblox && g.id.native_id.starts_with("place_") {
+            groups.entry(format!("roblox_{}", g.id.native_id)).or_default().push(g);
+            continue;
+        }
+
         let norm_key = normalize_game_title(&g.title);
         let key = if norm_key.is_empty() {
-            g.title.to_lowercase()
+            if g.title.trim().is_empty() {
+                format!("{}_{}", g.id.platform.as_str(), g.id.native_id)
+            } else {
+                g.title.to_lowercase()
+            }
         } else {
             norm_key
         };

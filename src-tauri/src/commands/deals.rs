@@ -216,6 +216,8 @@ pub async fn get_steam_store_showcase(http: State<'_, reqwest::Client>) -> Resul
                     let units = cents as f64 / 100.0;
                     if currency == "RUB" {
                         format!("{:.0} ₽", units)
+                    } else if currency == "KZT" {
+                        format!("{:.0} ₸", units)
                     } else if currency == "USD" {
                         format!("${:.2}", units)
                     } else if currency == "EUR" {

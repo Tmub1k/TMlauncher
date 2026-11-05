@@ -45,8 +45,8 @@
   }
 
   async function loadPage() {
-    // Epic Games and Cloudflare-protected sites cannot be embedded inside an iframe srcdoc without WAF blocks
-    if (url.includes('epicgames.com') || url.includes('steamcommunity.com')) {
+    // Steam store and Epic Games require native WebView rendering for complete layout, scripts, and authentication
+    if (url.includes('store.steampowered.com') || url.includes('epicgames.com') || url.includes('steamcommunity.com')) {
       await openInWebview();
       return;
     }

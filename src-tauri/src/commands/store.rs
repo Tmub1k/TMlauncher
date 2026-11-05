@@ -301,6 +301,7 @@ struct SteamFeaturedItem {
     discount_percent: Option<u32>,
     original_price: Option<u64>,
     final_price: Option<u64>,
+    currency: Option<String>,
     header_image: Option<String>,
 }
 
@@ -338,6 +339,117 @@ pub async fn get_store_recommendations(
 
     let cdn_base = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps";
 
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(2500))
+        .build()
+        .ok();
+
+    // 0. Try fetching personalized user dynamic store recommendations (wishlist, tags, popular for user)
+    if let Some(client) = &http {
+        if let Ok(resp) = client
+            .get("https://store.steampowered.com/dynamicstore/userdata/")
+            .send()
+            .await
+        {
+            #[derive(Deserialize)]
+            struct UserDataTag {
+                name: Option<String>,
+            }
+            #[derive(Deserialize)]
+            struct UserDataResponse {
+                #[serde(rename = "rgRecommendedTags")]
+                rg_recommended_tags: Option<Vec<UserDataTag>>,
+            }
+            if let Ok(u_json) = resp.json::<UserDataResponse>().await {
+                if let Some(user_tags) = u_json.rg_recommended_tags {
+                    let top_user_tags: Vec<String> = user_tags
+                        .into_iter()
+                        .filter_map(|t| t.name)
+                        .take(5)
+                        .collect();
+                    if !top_user_tags.is_empty() {
+                        // Prioritize static catalog games that match the user's top recommended tags
+                        let mut user_preferred: Vec<StaticStoreItem> = Vec::new();
+                        for item in STORE_CATALOG {
+                            if item.tags.iter().any(|t| top_user_tags.iter().any(|ut| ut.eq_ignore_ascii_case(t))) {
+                                user_preferred.push(item.clone());
+                            }
+                        }
+                        for static_item in user_preferred {
+                            if seen_app_ids.contains(&static_item.app_id) {
+                                continue;
+                            }
+                            seen_app_ids.insert(static_item.app_id);
+
+                            let base_usd = static_item.base_usd;
+                            let discount = static_item.discount_pct;
+                            let sale_usd = if discount > 0 {
+                                let final_price = base_usd * (1.0 - (discount as f64 / 100.0));
+                                (final_price * 100.0).round() / 100.0
+                            } else {
+                                base_usd
+                            };
+
+                            let price_raw = if curr == "KZT" {
+                                convert_price_to_kzt(sale_usd) as f64
+                            } else {
+                                sale_usd
+                            };
+                            let price_formatted = format_price_string(sale_usd, curr);
+
+                            let (orig_raw, orig_formatted) = if discount > 0 {
+                                let o_raw = if curr == "KZT" {
+                                    convert_price_to_kzt(base_usd) as f64
+                                } else {
+                                    base_usd
+                                };
+                                let o_fmt = format_price_string(base_usd, curr);
+                                (Some(o_raw), Some(o_fmt))
+                            } else {
+                                (None, None)
+                            };
+
+                            let app_id = static_item.app_id;
+                            let header_img = format!("{}/{}/header.jpg", cdn_base, app_id);
+                            let thumb_img = format!("{}/{}/capsule_231x87.jpg", cdn_base, app_id);
+                            let banner_img = format!("{}/{}/library_hero.jpg", cdn_base, app_id);
+
+                            let mut tags: Vec<String> = static_item.tags.iter().map(|&t| t.to_string()).collect();
+                            tags.insert(0, "Рекомендовано вам".into());
+
+                            all_candidates.push(StoreItem {
+                                app_id,
+                                title: static_item.title.to_string(),
+                                price_raw,
+                                price_formatted,
+                                original_price_raw: orig_raw,
+                                original_price_formatted: orig_formatted,
+                                discount_percent: discount,
+                                thumbnail_url: thumb_img,
+                                header_image: Some(header_img),
+                                banner_url: Some(banner_img),
+                                tags,
+                                review_score: Some(static_item.review_score.to_string()),
+                                media: Some(StoreMedia {
+                                    screenshots: vec![
+                                        format!("{}/{}/ss_1.jpg", cdn_base, app_id),
+                                        format!("{}/{}/ss_2.jpg", cdn_base, app_id),
+                                    ],
+                                    webm_video: Some(static_item.mp4_video.to_string()),
+                                    mp4_video: Some(static_item.mp4_video.to_string()),
+                                }),
+                                short_description: Some(static_item.short_desc.to_string()),
+                                release_date: Some(static_item.release_date.to_string()),
+                                store_url: format!("https://store.steampowered.com/app/{}", app_id),
+                                install_uri: format!("steam://install/{}", app_id),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 1. Try fetching real-time recommendations from Steam featured API
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(2500))
@@ -345,9 +457,13 @@ pub async fn get_store_recommendations(
         .ok();
 
     if let Some(client) = http {
+        let store_api_url = if curr == "KZT" {
+            "https://store.steampowered.com/api/featuredcategories?cc=kz&l=en"
+        } else {
+            "https://store.steampowered.com/api/featuredcategories?cc=us&l=en"
+        };
         if let Ok(resp) = client
-            .get("https://store.steampowered.com/api/featuredcategories")
-            .header("Accept-Language", "ru,en;q=0.9")
+            .get(store_api_url)
             .send()
             .await
         {
@@ -369,27 +485,40 @@ pub async fn get_store_recommendations(
                     }
                     seen_app_ids.insert(item.id);
 
-                    let base_usd = item.original_price.map(|p| p as f64 / 100.0).unwrap_or(29.99);
+                    let item_curr = item.currency.as_deref().unwrap_or(if curr == "KZT" { "KZT" } else { "USD" });
                     let discount = item.discount_percent.unwrap_or(0);
-                    let sale_usd = item.final_price.map(|p| p as f64 / 100.0).unwrap_or(base_usd);
 
-                    let price_raw = if curr == "KZT" {
-                        convert_price_to_kzt(sale_usd) as f64
-                    } else {
-                        sale_usd
-                    };
-                    let price_formatted = format_price_string(sale_usd, curr);
-
-                    let (orig_raw, orig_formatted) = if discount > 0 {
-                        let o_raw = if curr == "KZT" {
-                            convert_price_to_kzt(base_usd) as f64
+                    let (price_raw, price_formatted, orig_raw, orig_formatted) = if item_curr == "KZT" {
+                        let final_kzt = item.final_price.map(|p| p / 100).unwrap_or(0);
+                        let orig_kzt = item.original_price.map(|p| p / 100);
+                        let fmt_final = if final_kzt == 0 {
+                            "Free to Play".to_string()
                         } else {
-                            base_usd
+                            format_price_string(final_kzt as f64 / FIXED_EXCHANGE_RATE, "KZT")
                         };
-                        let o_fmt = format_price_string(base_usd, curr);
-                        (Some(o_raw), Some(o_fmt))
+                        let fmt_orig = orig_kzt.map(|p| format_price_string(p as f64 / FIXED_EXCHANGE_RATE, "KZT"));
+                        (final_kzt as f64, fmt_final, orig_kzt.map(|p| p as f64), fmt_orig)
                     } else {
-                        (None, None)
+                        // USD
+                        let base_usd = item.original_price.map(|p| p as f64 / 100.0).unwrap_or(29.99);
+                        let sale_usd = item.final_price.map(|p| p as f64 / 100.0).unwrap_or(base_usd);
+                        let p_raw = if curr == "KZT" {
+                            convert_price_to_kzt(sale_usd) as f64
+                        } else {
+                            sale_usd
+                        };
+                        let p_fmt = format_price_string(sale_usd, curr);
+                        let (o_raw, o_fmt) = if discount > 0 {
+                            let raw = if curr == "KZT" {
+                                convert_price_to_kzt(base_usd) as f64
+                            } else {
+                                base_usd
+                            };
+                            (Some(raw), Some(format_price_string(base_usd, curr)))
+                        } else {
+                            (None, None)
+                        };
+                        (p_raw, p_fmt, o_raw, o_fmt)
                     };
 
                     let header_img = item.header_image.unwrap_or_else(|| format!("{}/{}/header.jpg", cdn_base, item.id));

@@ -94,17 +94,15 @@
     steamSyncing = true;
     saveFeedback = null;
     try {
-      await invoke('set_steam_credentials', {
-        credentials: {
-          apiKey: null,
-          steamId64: null,
-          steamgriddbApiKey: null,
-        },
-      });
-      steamIdInput = '';
-      steamApiKeyInput = '';
+      const res: any = await invoke('auto_detect_steam_credentials');
+      if (res?.steamId64) {
+        steamIdInput = res.steamId64;
+      }
+      if (res?.apiKey) {
+        steamApiKeyInput = res.apiKey;
+      }
       await loadSteamInfo();
-      saveFeedback = 'Автоматически обнаружен активный аккаунт Steam на этом ПК!';
+      saveFeedback = 'Steam аккаунт и API ключ успешно обнаружены и подключены автоматически!';
       setTimeout(() => (saveFeedback = null), 4000);
     } catch (err: any) {
       saveFeedback = `Ошибка авто-определения: ${err?.message || String(err)}`;

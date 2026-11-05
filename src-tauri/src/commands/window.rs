@@ -69,7 +69,20 @@ pub async fn get_store_page_html(url: String) -> Result<String> {
         .text()
         .await?;
 
-    let base_tag = format!("<base href=\"{url}\" target=\"_blank\">");
+    // Inject modern Steam CSS resets and link overrides to ensure proper styling
+    let injection = r#"
+        <meta name="referrer" content="no-referrer">
+        <link rel="stylesheet" href="https://store.akamai.steamstatic.com/public/shared/css/motiva_sans.css">
+        <link rel="stylesheet" href="https://store.akamai.steamstatic.com/public/shared/css/shared_global.css">
+        <link rel="stylesheet" href="https://store.akamai.steamstatic.com/public/css/v6/game.css">
+        <style>
+            body { background-color: #171a21 !important; color: #c6d4df !important; font-family: 'Motiva Sans', sans-serif !important; }
+            a { color: #66c0f4 !important; }
+            .global_header, #global_header, .responsive_header { background: #171a21 !important; }
+        </style>
+    "#;
+
+    let base_tag = format!("<base href=\"{url}\" target=\"_blank\">\n{injection}");
     let html = if let Some(idx) = text.find("<head>") {
         let (head, rest) = text.split_at(idx + 6);
         format!("{head}\n{base_tag}\n{rest}")

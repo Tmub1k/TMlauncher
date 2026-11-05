@@ -205,7 +205,7 @@
         {/each}
       </div>
       <p class="line-clamp-3 text-xs font-bold tracking-tight text-zinc-200">
-        {game?.title ?? 'Untitled'}
+        {game?.title && game.title.trim().length > 0 ? game.title : 'Untitled'}
       </p>
     </div>
   {/if}
@@ -271,7 +271,7 @@
     class="absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end bg-gradient-to-t from-black via-black/85 to-transparent p-3 pt-12"
   >
     <h3 class="truncate text-xs font-bold tracking-tight text-white drop-shadow-sm">
-      {game?.title ?? 'Untitled'}
+      {game?.title && game.title.trim().length > 0 ? game.title : 'Untitled'}
     </h3>
 
     <div class="mt-1 flex items-center justify-between font-mono text-[10px] text-zinc-400">

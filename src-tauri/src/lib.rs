@@ -127,6 +127,7 @@ pub fn run() {
             commands::library::sync_platform,
             commands::library::set_steam_credentials,
             commands::library::get_steam_credentials,
+            commands::library::auto_detect_steam_credentials,
             commands::library::get_steam_cloud_saves,
             commands::library::search_steamgriddb_posters,
             commands::platforms::get_steam_profile,
