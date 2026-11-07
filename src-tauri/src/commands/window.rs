@@ -1,4 +1,5 @@
-//! Native Windows 11 Mica / Tabbed (Mica Alt) / Acrylic window vibrancy control.
+//! Native Windows 11 Mica / Tabbed (Mica Alt) / Acrylic window vibrancy control
+//! and in-app / client store window management.
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewWindow};
@@ -69,7 +70,6 @@ pub async fn get_store_page_html(url: String) -> Result<String> {
         .text()
         .await?;
 
-    // Inject modern Steam CSS resets and link overrides to ensure proper styling
     let injection = r#"
         <meta name="referrer" content="no-referrer">
         <link rel="stylesheet" href="https://store.akamai.steamstatic.com/public/shared/css/motiva_sans.css">
@@ -93,7 +93,7 @@ pub async fn get_store_page_html(url: String) -> Result<String> {
 }
 
 #[tauri::command]
-pub async fn open_in_app_store_window(
+pub async fn open_in_store_webview(
     app: AppHandle,
     url: String,
     title: String,
@@ -102,6 +102,7 @@ pub async fn open_in_app_store_window(
 
     if let Some(w) = app.get_webview_window("store_window") {
         let _ = w.navigate(parsed);
+        let _ = w.eval(&format!("window.location.href = {:?};", url));
         let _ = w.set_title(&title);
         let _ = w.show();
         let _ = w.unminimize();
@@ -109,20 +110,159 @@ pub async fn open_in_app_store_window(
         return Ok(());
     }
 
-    let win = tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
         "store_window",
         tauri::WebviewUrl::External(parsed),
     )
     .title(&title)
-    .inner_size(1220.0, 820.0)
+    .inner_size(1280.0, 840.0)
     .center()
-    .build()
-    .map_err(|e| LauncherError::Launch(format!("failed to open store window: {e}")))?;
+    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+
+    if let Ok(data_dir) = app.path().app_data_dir() {
+        let profile_dir = data_dir.join("webview_profile");
+        let _ = std::fs::create_dir_all(&profile_dir);
+        builder = builder.data_directory(profile_dir);
+    }
+
+    let win = builder
+        .build()
+        .map_err(|e| LauncherError::Launch(format!("failed to open store window: {e}")))?;
 
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn open_in_app_store_window(
+    app: AppHandle,
+    url: String,
+    title: String,
+) -> Result<()> {
+    open_in_store_webview(app, url, title).await
+}
+
+#[tauri::command]
+pub async fn open_store_link(
+    app: AppHandle,
+    url: String,
+    mode: Option<String>,
+    app_id: Option<String>,
+    platform: Option<String>,
+) -> std::result::Result<(), String> {
+    let target_mode = mode.as_deref().unwrap_or("client").to_lowercase();
+    let target_platform = platform.as_deref().unwrap_or_default().to_lowercase();
+
+    match target_mode.as_str() {
+        "client" | "native" => {
+            let is_steam = target_platform == "steam"
+                || app_id.is_some()
+                || url.contains("store.steampowered.com")
+                || url.starts_with("steam://");
+
+            let is_epic = target_platform == "epic"
+                || url.contains("store.epicgames.com")
+                || url.starts_with("com.epicgames.launcher://");
+
+            if is_steam {
+                let steam_id = app_id.or_else(|| {
+                    let re = regex::Regex::new(r"store\.steampowered\.com/app/(\d+)").ok()?;
+                    re.captures(&url).and_then(|c| c.get(1)).map(|m| m.as_str().to_string())
+                });
+
+                let steam_uri = if let Some(id) = steam_id {
+                    format!("steam://store/{id}")
+                } else if url.contains("store.steampowered.com") {
+                    format!("steam://openurl/{url}")
+                } else if url.starts_with("steam://") {
+                    url.clone()
+                } else {
+                    format!("steam://openurl/{url}")
+                };
+
+                let opened = tokio::task::spawn_blocking(move || {
+                    #[cfg(windows)]
+                    {
+                        let _ = std::process::Command::new("cmd")
+                            .args(["/C", "start", "", &steam_uri])
+                            .spawn();
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        let _ = open::that_detached(&steam_uri);
+                    }
+                })
+                .await;
+
+                if opened.is_ok() {
+                    return Ok(());
+                }
+            } else if is_epic {
+                let slug = if url.contains("/p/") {
+                    url.split("/p/").nth(1).and_then(|s| s.split('?').next()).unwrap_or("")
+                } else {
+                    ""
+                };
+
+                let epic_uri = if !slug.is_empty() {
+                    format!("com.epicgames.launcher://store/p/{slug}")
+                } else {
+                    "com.epicgames.launcher://store".to_string()
+                };
+
+                let opened = tokio::task::spawn_blocking(move || {
+                    #[cfg(windows)]
+                    {
+                        let _ = std::process::Command::new("cmd")
+                            .args(["/C", "start", "", &epic_uri])
+                            .spawn();
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        let _ = open::that_detached(&epic_uri);
+                    }
+                })
+                .await;
+
+                if opened.is_ok() {
+                    return Ok(());
+                }
+            }
+
+            // Fallback: open in default browser
+            let url_clone = url.clone();
+            tokio::task::spawn_blocking(move || {
+                let _ = open::that_detached(&url_clone);
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+            Ok(())
+        }
+        "launcher" | "webview" => {
+            let title = if url.contains("steampowered.com") {
+                "Steam Store".to_string()
+            } else if url.contains("epicgames.com") {
+                "Epic Games Store".to_string()
+            } else {
+                "Store".to_string()
+            };
+            open_in_store_webview(app, url, title)
+                .await
+                .map_err(|e| e.to_string())
+        }
+        "browser" | "external" | _ => {
+            let url_clone = url.clone();
+            tokio::task::spawn_blocking(move || {
+                let _ = open::that_detached(&url_clone);
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        }
+    }
 }
 
 #[tauri::command]

@@ -14,21 +14,15 @@ import type {
 } from './types';
 
 import turaGraphiteJson from './tura-graphite.json';
-import liquidChromeJson from './liquid-chrome.json';
-import obsidianPureJson from './obsidian-pure.json';
-import cyberAuroraJson from './cyber-aurora.json';
-import glassJson from './glass.json';
 import whiteGlassJson from './white-glass.json';
+import cyberAuroraJson from './cyber-aurora.json';
 import greenJson from './green.json';
 import yellowJson from './yellow.json';
 
 export const BUILTIN_THEMES: Record<string, ThemeDefinition> = {
   'tura-graphite': turaGraphiteJson as unknown as ThemeDefinition,
-  'liquid-chrome': liquidChromeJson as unknown as ThemeDefinition,
-  'obsidian-pure': obsidianPureJson as unknown as ThemeDefinition,
-  'cyber-aurora': cyberAuroraJson as unknown as ThemeDefinition,
-  'glass': glassJson as unknown as ThemeDefinition,
   'white-glass': whiteGlassJson as unknown as ThemeDefinition,
+  'cyber-aurora': cyberAuroraJson as unknown as ThemeDefinition,
   'green': greenJson as unknown as ThemeDefinition,
   'yellow': yellowJson as unknown as ThemeDefinition,
 };
@@ -57,21 +51,40 @@ function deepMerge<T extends Record<string, any>>(base: T, override?: Record<str
 }
 
 const STORAGE_KEY_THEME_ID = 'omnilauncher.theme_id';
+const STORAGE_KEY_THEME_ALT = 'omnilauncher_theme';
+const STORAGE_KEY_ACCENT = 'omnilauncher_accent';
 const STORAGE_KEY_VIBRANCY = 'omnilauncher.vibrancy';
 
 export class ThemeEngine {
   private activeTheme: ThemeDefinition = DEFAULT_THEME;
-  private availableThemes = new Map<string, ThemeDefinition>();
+  private availableThemesMap = new Map<string, ThemeDefinition>();
   private subscribers = new Set<ThemeChangeListener>();
   private ambientAudio: HTMLAudioElement | null = null;
   private initialized = false;
   private injectedCustomProperties = new Set<string>();
+  private _customAccent: string | null = null;
+  private _currentVibrancy: WindowEffectKind = 'mica';
 
   constructor() {
-    // Register built-ins by default
     for (const [id, theme] of Object.entries(BUILTIN_THEMES)) {
-      this.availableThemes.set(id, theme);
+      this.availableThemesMap.set(id, theme);
     }
+  }
+
+  get activeThemeId(): string {
+    return this.activeTheme.id;
+  }
+
+  get availableThemes(): ThemeDefinition[] {
+    return Array.from(this.availableThemesMap.values());
+  }
+
+  get customAccent(): string | null {
+    return this._customAccent;
+  }
+
+  get vibrancy(): WindowEffectKind {
+    return this._currentVibrancy;
   }
 
   /**
@@ -85,20 +98,28 @@ export class ThemeEngine {
     // Load custom themes from Tauri backend if available
     await this.scanCustomThemes();
 
-    // Determine initial theme ID from storage or fallback to TURA Graphite
-    let initialThemeId = 'tura-graphite';
+    // Determine initial theme ID from storage
+    let initialThemeId = DEFAULT_THEME_ID;
     if (typeof window !== 'undefined') {
       try {
-        const savedId = localStorage.getItem(STORAGE_KEY_THEME_ID);
-        if (savedId && this.availableThemes.has(savedId)) {
+        const savedId = localStorage.getItem(STORAGE_KEY_THEME_ALT) || localStorage.getItem(STORAGE_KEY_THEME_ID);
+        if (savedId && this.availableThemesMap.has(savedId)) {
           initialThemeId = savedId;
+        }
+        const savedAccent = localStorage.getItem(STORAGE_KEY_ACCENT);
+        if (savedAccent) {
+          this._customAccent = savedAccent;
+        }
+        const savedVibrancy = localStorage.getItem(STORAGE_KEY_VIBRANCY) as WindowEffectKind | null;
+        if (savedVibrancy) {
+          this._currentVibrancy = savedVibrancy;
         }
       } catch {
         // Ignore localStorage restrictions
       }
     }
 
-    const themeToApply = this.availableThemes.get(initialThemeId) || BUILTIN_THEMES['tura-graphite'];
+    const themeToApply = this.availableThemesMap.get(initialThemeId) || BUILTIN_THEMES[DEFAULT_THEME_ID];
     this.applyTheme(themeToApply);
   }
 
@@ -110,14 +131,14 @@ export class ThemeEngine {
       const customSummaries = await invoke<ThemeSummary[]>('get_available_themes');
       if (Array.isArray(customSummaries)) {
         for (const summary of customSummaries) {
-          if (!this.availableThemes.has(summary.id)) {
+          if (!this.availableThemesMap.has(summary.id)) {
             try {
               const fullManifest = await invoke<ThemeDefinition>('load_theme_manifest', {
                 themeId: summary.id,
               });
               if (fullManifest && fullManifest.tokens) {
                 fullManifest.isCustom = true;
-                this.availableThemes.set(summary.id, fullManifest);
+                this.availableThemesMap.set(summary.id, fullManifest);
               }
             } catch {
               // Non-fatal if specific manifest fails to load
@@ -141,7 +162,7 @@ export class ThemeEngine {
       console.warn(`[ThemeEngine] Received nullish theme, defaulting to ${DEFAULT_THEME_ID}.`);
       resolvedTheme = DEFAULT_THEME;
     } else if (typeof themeOrId === 'string') {
-      resolvedTheme = this.availableThemes.get(themeOrId) || BUILTIN_THEMES[themeOrId];
+      resolvedTheme = this.availableThemesMap.get(themeOrId) || BUILTIN_THEMES[themeOrId];
       if (!resolvedTheme) {
         console.warn(`[ThemeEngine] Theme '${themeOrId}' not found. Falling back to ${DEFAULT_THEME_ID}.`);
         resolvedTheme = DEFAULT_THEME;
@@ -152,7 +173,7 @@ export class ThemeEngine {
         resolvedTheme = DEFAULT_THEME;
       } else {
         resolvedTheme = themeOrId;
-        this.availableThemes.set(resolvedTheme.id, resolvedTheme);
+        this.availableThemesMap.set(resolvedTheme.id, resolvedTheme);
       }
     } else {
       resolvedTheme = DEFAULT_THEME;
@@ -162,6 +183,15 @@ export class ThemeEngine {
     const defaultTokens = (DEFAULT_THEME.tokens || {}) as Record<string, string>;
     const targetTokens = (resolvedTheme.tokens || {}) as Record<string, string>;
     const mergedTokens = deepMerge(defaultTokens, targetTokens);
+
+    // Apply custom accent if active
+    if (this._customAccent) {
+      mergedTokens['--accent-primary'] = this._customAccent;
+      mergedTokens['--accent'] = this._customAccent;
+      mergedTokens['--text-accent'] = this._customAccent;
+      mergedTokens['--border-active'] = this._customAccent;
+      mergedTokens['--accent-glow'] = `0 0 24px ${this._customAccent}40`;
+    }
 
     resolvedTheme = {
       ...resolvedTheme,
@@ -173,6 +203,7 @@ export class ThemeEngine {
     if (typeof document !== 'undefined') {
       const root = document.documentElement;
       root.dataset.theme = resolvedTheme.id;
+      root.setAttribute('data-theme', resolvedTheme.id);
 
       // Clear previously injected custom CSS property names from root.style
       for (const prop of this.injectedCustomProperties) {
@@ -187,7 +218,7 @@ export class ThemeEngine {
         }
       }
 
-      // Also ensure backward-compatible surface tokens exist
+      // Backward-compatible surface & text tokens
       const tokenMap = mergedTokens as Record<string, string | undefined>;
       if (!tokenMap['--bg-surface-1'] && tokenMap['--bg-surface-base']) {
         root.style.setProperty('--bg-surface-1', tokenMap['--bg-surface-base']!);
@@ -208,6 +239,7 @@ export class ThemeEngine {
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(STORAGE_KEY_THEME_ID, resolvedTheme.id);
+        localStorage.setItem(STORAGE_KEY_THEME_ALT, resolvedTheme.id);
         localStorage.setItem(
           'omnilauncher.theme',
           JSON.stringify({
@@ -233,11 +265,30 @@ export class ThemeEngine {
   }
 
   /**
+   * Sets a custom user accent color across the UI.
+   */
+  setCustomAccent(color: string | null): void {
+    this._customAccent = color && color.trim().length > 0 ? color.trim() : null;
+    if (typeof window !== 'undefined') {
+      try {
+        if (this._customAccent) {
+          localStorage.setItem(STORAGE_KEY_ACCENT, this._customAccent);
+        } else {
+          localStorage.removeItem(STORAGE_KEY_ACCENT);
+        }
+      } catch {}
+    }
+    this.applyTheme(this.activeTheme);
+  }
+
+  /**
    * Sets Windows 11 DWM backdrop material via Tauri IPC.
    */
   async setVibrancy(effect: WindowEffectKind): Promise<void> {
+    this._currentVibrancy = effect;
     if (typeof document !== 'undefined') {
       document.documentElement.dataset.vibrancy = effect;
+      document.documentElement.setAttribute('data-vibrancy', effect);
     }
 
     try {
@@ -248,13 +299,14 @@ export class ThemeEngine {
     } catch {
       // Ignored when running outside Tauri or on unsupported OS versions
     }
+    this.notify();
   }
 
   /**
    * Returns list of all available themes (built-ins + discovered custom).
    */
   getAvailableThemes(): ThemeDefinition[] {
-    return Array.from(this.availableThemes.values());
+    return Array.from(this.availableThemesMap.values());
   }
 
   /**

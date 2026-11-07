@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::core::platform::{
-    launch_executable, launch_uri, Game, GameId, LaunchHandle, PlatformConnector, PlatformKind,
+    launch_executable, launch_uri, ArtRef, Artwork, Game, GameId, LaunchHandle, PlatformConnector, PlatformKind,
     ProfileSync,
 };
 use crate::error::{LauncherError, Result};
@@ -81,6 +81,7 @@ impl EpicItemManifest {
 pub struct EpicPlatform {
     manifests_override: Option<PathBuf>,
     manifest_cache: RwLock<HashMap<String, EpicItemManifest>>,
+    http: reqwest::Client,
 }
 
 impl EpicPlatform {
@@ -88,6 +89,10 @@ impl EpicPlatform {
         Self {
             manifests_override: None,
             manifest_cache: RwLock::new(HashMap::new()),
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
@@ -95,6 +100,10 @@ impl EpicPlatform {
         Self {
             manifests_override: Some(dir),
             manifest_cache: RwLock::new(HashMap::new()),
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
@@ -312,6 +321,141 @@ impl EpicPlatform {
         result.sort_by(|a, b| a.display_name.cmp(&b.display_name));
         Ok(result)
     }
+
+    fn preset_art(app_name: &str, title: &str) -> Option<(String, String)> {
+        let lower_app = app_name.to_lowercase();
+        let lower_title = title.to_lowercase();
+        if lower_app.contains("fortnite") || lower_title.contains("fortnite") {
+            return Some((
+                "https://cdn1.epicgames.com/offer/fn/FNBR_29-00_C5S2_EGS_Launcher_Blade_2560x1440_2560x1440-66e85579fa9a117565ba18451f28b7e7".into(),
+                "https://cdn1.epicgames.com/offer/fn/FNBR_29-00_C5S2_EGS_Launcher_Blade_2560x1440_2560x1440-66e85579fa9a117565ba18451f28b7e7".into(),
+            ));
+        }
+        if lower_app.contains("alanwake2") || lower_title.contains("alan wake 2") {
+            return Some((
+                "https://cdn1.epicgames.com/offer/c4763f236d08423eb47b4c3008779c84/EGS_AlanWake2_RemedyEntertainment_S2_1200x1600-c7c527011d61eb2e4719286073dc0814".into(),
+                "https://cdn1.epicgames.com/offer/c4763f236d08423eb47b4c3008779c84/EGS_AlanWake2_RemedyEntertainment_S1_2560x1440-6219ffbb133d17961937ff7fa762391b".into(),
+            ));
+        }
+        None
+    }
+
+    async fn harvest_legendary_heroic_art() -> HashMap<String, (Option<String>, Option<String>)> {
+        let mut map = HashMap::new();
+        if let Some(config_dir) = dirs::config_dir() {
+            for base in [config_dir.join("legendary"), config_dir.join("heroic").join("store_cache")] {
+                for filename in ["installed.json", "epic_games.json"] {
+                    let path = base.join(filename);
+                    if path.exists() {
+                        if let Ok(raw) = tokio::fs::read_to_string(&path).await {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                                if let Some(obj) = val.as_object() {
+                                    for (k, item) in obj {
+                                        let app_name = item.get("app_name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or(k);
+                                        let mut poster = None;
+                                        let mut hero = None;
+                                        if let Some(imgs) = item.get("keyImages").and_then(|v| v.as_array()) {
+                                            for img in imgs {
+                                                let t = img.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                                let url = img.get("url").and_then(|v| v.as_str()).map(String::from);
+                                                if t == "DieselGameBox" || t == "OfferImageTall" || t == "Thumbnail" {
+                                                    if poster.is_none() { poster = url.clone(); }
+                                                }
+                                                if t == "DieselStoreFrontWide" || t == "OfferImageWide" {
+                                                    if hero.is_none() { hero = url.clone(); }
+                                                }
+                                            }
+                                        }
+                                        if poster.is_some() || hero.is_some() {
+                                            map.insert(app_name.to_string(), (poster, hero));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        map
+    }
+
+    pub async fn resolve_games_artwork(&self, games: &mut [Game]) {
+        let mut cache: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
+        let cache_path = dirs::data_dir().map(|d| d.join("OmniLauncher").join("epic_artwork_cache.json"));
+        if let Some(ref p) = cache_path {
+            if let Ok(raw) = std::fs::read_to_string(p) {
+                if let Ok(map) = serde_json::from_str::<HashMap<String, (Option<String>, Option<String>)>>(&raw) {
+                    cache = map;
+                }
+            }
+        }
+
+        let local_harvest = Self::harvest_legendary_heroic_art().await;
+        for (k, v) in local_harvest {
+            cache.entry(k).or_insert(v);
+        }
+
+        let mut changed = false;
+
+        for game in games.iter_mut() {
+            let app_name = &game.id.native_id;
+            let display_name = &game.title;
+
+            let preset = Self::preset_art(app_name, display_name);
+
+            let (poster_url, hero_url) = if let Some(p) = preset {
+                (Some(p.0), Some(p.1))
+            } else if let Some(cached) = cache.get(app_name).or_else(|| cache.get(display_name)) {
+                cached.clone()
+            } else {
+                let search_title = crate::commands::store::sanitize_search_query(display_name);
+                let mut found_poster = None;
+                let mut found_hero = None;
+
+                if !search_title.is_empty() {
+                    let search_url = "https://store.steampowered.com/api/storesearch/";
+                    if let Ok(resp) = self.http.get(search_url)
+                        .query(&[("term", search_title.as_str()), ("l", "russian"), ("cc", "us")])
+                        .send()
+                        .await
+                    {
+                        if let Ok(json) = resp.json::<serde_json::Value>().await {
+                            if let Some(first_id) = json.pointer("/items/0/id").and_then(|v| v.as_u64()) {
+                                let cdn = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps";
+                                found_poster = Some(format!("{cdn}/{first_id}/library_600x900.jpg"));
+                                found_hero = Some(format!("{cdn}/{first_id}/library_hero.jpg"));
+                            }
+                        }
+                    }
+                }
+
+                cache.insert(app_name.clone(), (found_poster.clone(), found_hero.clone()));
+                changed = true;
+                (found_poster, found_hero)
+            };
+
+            game.art = Artwork {
+                poster: poster_url.map(ArtRef::Remote),
+                hero: hero_url.map(ArtRef::Remote),
+                logo: None,
+                icon: None,
+            };
+        }
+
+        if changed {
+            if let Some(ref p) = cache_path {
+                if let Some(parent) = p.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Ok(s) = serde_json::to_string_pretty(&cache) {
+                    let _ = std::fs::write(p, s);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,6 +529,8 @@ impl PlatformConnector for EpicPlatform {
                 }
             }
         }
+
+        self.resolve_games_artwork(&mut games).await;
 
         Ok(games)
     }

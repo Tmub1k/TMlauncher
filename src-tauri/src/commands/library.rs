@@ -138,12 +138,9 @@ pub async fn auto_detect_steam_credentials(
     let profile = steam.resolve_profile().await.ok();
     let detected_id = profile.map(|p| p.steam_id);
 
-    // 2. Load existing or fallback API key
+    // 2. Load existing valid API key if configured
     let current_creds = steam.credentials().await;
-    let api_key = current_creds.api_key.filter(|s| !s.trim().is_empty()).or_else(|| {
-        // Built-in standard read-only community key preset for seamless public profile and recommendations sync
-        Some("6E7C979E308F45A967B4BE7588C02B91".to_string())
-    });
+    let api_key = current_creds.api_key.filter(|s| !s.trim().is_empty());
 
     let new_creds = SteamCredentials {
         api_key,

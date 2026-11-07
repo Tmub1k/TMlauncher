@@ -54,16 +54,16 @@
   });
 
   const posterUrl = $derived.by(() => {
-    if (imageFailCount >= 4) return null;
     const directArt = (game as any)?.artworkUrl || (game as any)?.coverUrl || (game as any)?.poster;
     const rawArt = game?.art?.poster ? resolveArtUrl(game.art.poster) : (directArt ? String(directArt) : null);
     const base = rawArt && typeof rawArt === 'string' && rawArt.trim().length > 0 ? rawArt.trim() : null;
-    const cdn = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps';
     const chain: string[] = [];
     if (base) chain.push(base);
     if (steamAppId && /^\d+$/.test(steamAppId)) {
-      chain.push(`${cdn}/${steamAppId}/library_600x900.jpg`, `${cdn}/${steamAppId}/header.jpg`, `${cdn}/${steamAppId}/capsule_616x353.jpg`);
+      chain.push(`https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/header.jpg`);
+      chain.push(`https://cdn.akamai.steamstatic.com/steam/apps/${steamAppId}/capsule_616x353.jpg`);
     }
+    if (imageFailCount >= chain.length) return null;
     return chain[imageFailCount] ?? null;
   });
 

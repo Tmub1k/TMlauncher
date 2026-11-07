@@ -130,8 +130,8 @@ export interface SteamStoreShowcase {
   syncedAt: string;
 }
 
-export async function fetchSteamStoreShowcase(): Promise<SteamStoreShowcase> {
-  return invoke<SteamStoreShowcase>('get_steam_store_showcase');
+export async function fetchSteamStoreShowcase(currency?: string): Promise<SteamStoreShowcase> {
+  return invoke<SteamStoreShowcase>('get_steam_store_showcase', { currency });
 }
 
 // ---- itch.io Store Showcase -------------------------------------------------

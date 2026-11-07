@@ -11,13 +11,26 @@
   import { networkStore } from '$lib/stores/network';
   import { directoryPicker, fetchSystemDrives, calculateUtilization, type DriveInfo } from '$lib/stores/filesystem';
   import { currencyStore } from '$lib/stores/store';
-  import { themeStore } from '$lib/stores/theme';
+  import { themeEngine } from '$lib/themes/theme-engine';
   import { ecoStore } from '$lib/stores/eco.svelte';
+  import { storeLinkManager, type StoreOpenMode } from '$lib/utils/storeLink';
   import { invoke } from '@tauri-apps/api/core';
 
   let activeTab = $state<'network' | 'storage' | 'appearance' | 'accounts'>('network');
   let systemDrives = $state<DriveInfo[]>([]);
   let saveFeedback = $state<string | null>(null);
+  let customAccentInput = $state(themeEngine.customAccent || '#6366f1');
+  let currentThemeId = $state(themeEngine.activeThemeId);
+
+  // Sync theme changes
+  onMount(() => {
+    return themeEngine.subscribe((theme) => {
+      currentThemeId = theme.id;
+      if (themeEngine.customAccent) {
+        customAccentInput = themeEngine.customAccent;
+      }
+    });
+  });
 
   // Steam Account Binding state
   let steamProfile = $state<any>(null);
@@ -469,57 +482,202 @@
   <!-- TAB 3: THEMES & UI -->
   {#if activeTab === 'appearance'}
     <div class="space-y-6">
-      <!-- Handheld & Laptop Eco Mode -->
-      <div class="rounded-2xl border border-white/10 bg-[#121215]/90 p-6 space-y-4">
-        <div class="flex items-center justify-between border-b border-white/10 pb-3">
+      <!-- Unified Theme Selection: 5 Distinct Themes -->
+      <div class="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] p-6 space-y-4">
+        <div class="border-b border-[var(--border-subtle)] pb-3 flex items-center justify-between">
           <div>
-            <h3 class="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-              <span>🍃</span>
-              <span>Handheld & Laptop Eco Mode</span>
-              {#if ecoStore.enabled}
-                <span class="rounded bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] text-emerald-300 font-bold">ACTIVE</span>
-              {/if}
-            </h3>
-            <p class="text-xs text-zinc-400">Zero GPU animation overhead, pitch OLED black background, and throttled background polling</p>
+            <h3 class="text-sm font-bold text-[var(--text-primary)] tracking-tight">Темы оформления OmniLauncher</h3>
+            <p class="text-xs text-[var(--text-secondary)]">5 тщательно настроенных цветовых стилей с динамической адаптацией интерфейса</p>
           </div>
-          <button
-            type="button"
-            onclick={() => ecoStore.toggle()}
-            class="rounded-xl px-4 py-2 font-mono text-xs font-bold transition-all {ecoStore.enabled
-              ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
-              : 'border border-white/15 bg-white/5 text-zinc-300 hover:bg-white/10'}"
-          >
-            {ecoStore.enabled ? 'Enabled' : 'Disabled'}
-          </button>
+          <span class="font-mono text-xs text-[var(--accent-primary)] font-bold">
+            Текущая: {themeEngine.getActiveTheme().name}
+          </span>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-xs text-zinc-400">
-          <div class="rounded-lg bg-black/40 p-3 border border-white/5">
-            <span class="text-zinc-500 block text-[10px] uppercase">Battery Level</span>
-            <span class="text-white font-bold">{ecoStore.batteryLevel !== null ? `${ecoStore.batteryLevel}%` : 'AC Power'}</span>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {#each themeEngine.getAvailableThemes() as theme}
+            {@const isSelected = currentThemeId === theme.id}
+            {@const bg = (theme.tokens as any)?.['--bg-canvas'] || '#09090b'}
+            {@const surface = (theme.tokens as any)?.['--bg-surface-base'] || '#121215'}
+            {@const accent = (theme.tokens as any)?.['--accent-primary'] || '#6366f1'}
+            {@const text = (theme.tokens as any)?.['--text-primary'] || '#ffffff'}
+            <button
+              type="button"
+              onclick={() => {
+                themeEngine.applyTheme(theme.id);
+                currentThemeId = theme.id;
+              }}
+              class="relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all duration-200 {isSelected
+                ? 'border-[var(--accent-primary)] ring-2 ring-[var(--accent-primary)]/40 shadow-lg scale-[1.02]'
+                : 'border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] hover:border-[var(--border-active)] hover:bg-[var(--bg-surface-floating)]'}"
+              style="background-color: {surface};"
+            >
+              <div>
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-xs" style="color: {text}">{theme.name}</span>
+                  {#if isSelected}
+                    <span class="flex h-2 w-2 rounded-full" style="background-color: {accent}; box-shadow: 0 0 8px {accent};"></span>
+                  {/if}
+                </div>
+                <p class="text-[10px] opacity-75 mt-1 line-clamp-2" style="color: {text}">
+                  {theme.description || 'Флагманская тема оформления'}
+                </p>
+              </div>
+
+              <div class="mt-4 pt-3 border-t border-black/10 dark:border-white/10 flex items-center justify-between">
+                <!-- Color Swatches -->
+                <div class="flex items-center gap-1.5">
+                  <span class="h-3.5 w-3.5 rounded-full border border-black/20 dark:border-white/20 shadow-sm" style="background-color: {bg}" title="Фон"></span>
+                  <span class="h-3.5 w-3.5 rounded-full border border-black/20 dark:border-white/20 shadow-sm" style="background-color: {surface}" title="Поверхность"></span>
+                  <span class="h-3.5 w-3.5 rounded-full border border-black/20 dark:border-white/20 shadow-sm" style="background-color: {accent}" title="Акцент"></span>
+                </div>
+                <span class="font-mono text-[9px] opacity-60" style="color: {text}">{theme.id}</span>
+              </div>
+            </button>
+          {/each}
+        </div>
+
+        <!-- Custom Accent Color Picker -->
+        <div class="mt-6 pt-4 border-t border-[var(--border-hairline)] flex flex-wrap items-center justify-between gap-4">
+          <div class="space-y-0.5">
+            <span class="text-xs font-bold text-[var(--text-primary)]">Пользовательский цвет акцента</span>
+            <p class="text-[11px] text-[var(--text-secondary)]">Переопределяет цвет кнопок, бейджей и свечения для выбранной темы</p>
           </div>
-          <div class="rounded-lg bg-black/40 p-3 border border-white/5">
-            <span class="text-zinc-500 block text-[10px] uppercase">Power Source</span>
-            <span class="text-white font-bold">{ecoStore.isCharging ? 'Charging / Wall AC' : 'Battery (Discharging)'}</span>
-          </div>
-          <div class="rounded-lg bg-black/40 p-3 border border-white/5">
-            <span class="text-zinc-500 block text-[10px] uppercase">OLED True Black</span>
-            <span class="text-white font-bold">{ecoStore.enabled ? '#000000 (Active)' : 'Deep Graphite'}</span>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Preset Palette -->
+            {#each ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'] as preset}
+              <button
+                type="button"
+                onclick={() => {
+                  customAccentInput = preset;
+                  themeEngine.setCustomAccent(preset);
+                }}
+                class="h-6 w-6 rounded-full border border-white/20 transition-transform hover:scale-110 shadow-sm"
+                style="background-color: {preset};"
+                title={`Выбрать акцент ${preset}`}
+              ></button>
+            {/each}
+
+            <!-- Color Input Picker -->
+            <div class="flex items-center gap-2 ml-2">
+              <input
+                type="color"
+                bind:value={customAccentInput}
+                onchange={(e) => themeEngine.setCustomAccent((e.currentTarget as HTMLInputElement).value)}
+                class="h-7 w-8 cursor-pointer rounded border border-[var(--border-subtle)] bg-transparent p-0.5"
+                title="Выбрать свой цвет"
+              />
+              <span class="font-mono text-[11px] text-[var(--text-secondary)]">{customAccentInput}</span>
+            </div>
+
+            <!-- Reset Button -->
+            {#if themeEngine.customAccent}
+              <button
+                type="button"
+                onclick={() => {
+                  themeEngine.setCustomAccent(null);
+                  customAccentInput = (themeEngine.getActiveTheme().tokens as any)?.['--accent-primary'] || '#6366f1';
+                }}
+                class="btn-minimal px-2.5 py-1 text-[11px] font-mono ml-2"
+                title="Сбросить акцент к цветам темы по умолчанию"
+              >
+                Сброс
+              </button>
+            {/if}
           </div>
         </div>
       </div>
-      <div class="rounded-2xl border border-white/10 bg-[#121215]/90 p-6 space-y-4">
-        <div class="border-b border-white/10 pb-3">
-          <h3 class="text-sm font-bold text-white tracking-tight">Store Currency Preference</h3>
-          <p class="text-xs text-zinc-400">Authoritative currency for all game prices and discounts</p>
+
+      <!-- Store Link Opening Preference -->
+      <div class="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] p-6 space-y-4">
+        <div class="border-b border-[var(--border-subtle)] pb-3">
+          <h3 class="text-sm font-bold text-[var(--text-primary)] tracking-tight">Способ открытия ссылок магазинов (Steam / Epic)</h3>
+          <p class="text-xs text-[var(--text-secondary)]">Где открывать страницы игр при клике на карточки, скидки и каталог</p>
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            onclick={() => storeLinkManager.setMode('client')}
+            class="flex flex-col justify-between rounded-xl border p-4 text-left transition-all {storeLinkManager.mode === 'client'
+              ? 'border-[var(--accent-primary)] bg-[var(--bg-surface-elevated)] ring-1 ring-[var(--accent-primary)]/50 shadow-md'
+              : 'border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/40 hover:border-[var(--border-active)]'}"
+          >
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-xs text-[var(--text-primary)] flex items-center gap-1.5">
+                  <span>🎮</span> В клиенте Steam / Epic
+                </span>
+                <span class="rounded bg-emerald-500/20 text-emerald-400 font-mono text-[8px] px-1 py-0.5 font-bold">
+                  АККАУНТ
+                </span>
+              </div>
+              <p class="text-[11px] text-[var(--text-secondary)] mt-1.5">
+                Мгновенно открывает в приложении Steam/Epic. Вы уже авторизованы в своём аккаунте.
+              </p>
+            </div>
+            <span class="font-mono text-[10px] text-emerald-400 mt-3 font-semibold">
+              {storeLinkManager.mode === 'client' ? '✓ Активно' : 'Выбрать'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => storeLinkManager.setMode('launcher')}
+            class="flex flex-col justify-between rounded-xl border p-4 text-left transition-all {storeLinkManager.mode === 'launcher'
+              ? 'border-[var(--accent-primary)] bg-[var(--bg-surface-elevated)] ring-1 ring-[var(--accent-primary)]/50 shadow-md'
+              : 'border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/40 hover:border-[var(--border-active)]'}"
+          >
+            <div>
+              <span class="font-bold text-xs text-[var(--text-primary)] flex items-center gap-1.5">
+                <span>❐</span> В окне лаунчера
+              </span>
+              <p class="text-[11px] text-[var(--text-secondary)] mt-1.5">
+                Отдельное встроенное окно WebView внутри OmniLauncher с сохранением cookies и сессий.
+              </p>
+            </div>
+            <span class="font-mono text-[10px] text-[var(--accent-primary)] mt-3 font-semibold">
+              {storeLinkManager.mode === 'launcher' ? '✓ Активно' : 'Выбрать'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => storeLinkManager.setMode('browser')}
+            class="flex flex-col justify-between rounded-xl border p-4 text-left transition-all {storeLinkManager.mode === 'browser'
+              ? 'border-[var(--accent-primary)] bg-[var(--bg-surface-elevated)] ring-1 ring-[var(--accent-primary)]/50 shadow-md'
+              : 'border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/40 hover:border-[var(--border-active)]'}"
+          >
+            <div>
+              <span class="font-bold text-xs text-[var(--text-primary)] flex items-center gap-1.5">
+                <span>🌐</span> В браузере Windows
+              </span>
+              <p class="text-[11px] text-[var(--text-secondary)] mt-1.5">
+                Открывает новую вкладку в вашем основном системном веб-браузере (Edge, Chrome, Firefox).
+              </p>
+            </div>
+            <span class="font-mono text-[10px] text-[var(--accent-primary)] mt-3 font-semibold">
+              {storeLinkManager.mode === 'browser' ? '✓ Активно' : 'Выбрать'}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Currency Switcher -->
+      <div class="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] p-6 space-y-4">
+        <div class="border-b border-[var(--border-subtle)] pb-3">
+          <h3 class="text-sm font-bold text-[var(--text-primary)] tracking-tight">Валюта магазина и цен</h3>
+          <p class="text-xs text-[var(--text-secondary)]">Основная валюта для каталога Steam, радара скидок и бесплатных раздач</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onclick={() => currencyStore.setCurrency('USD')}
             class="rounded-xl border px-4 py-2 font-mono text-xs font-bold transition-all {currencyStore.code === 'USD'
-              ? 'border-white/50 bg-white text-black shadow-md'
-              : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}"
+              ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-white shadow-md'
+              : 'border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
           >
             $ USD (United States Dollar)
           </button>
@@ -527,36 +685,46 @@
             type="button"
             onclick={() => currencyStore.setCurrency('KZT')}
             class="rounded-xl border px-4 py-2 font-mono text-xs font-bold transition-all {currencyStore.code === 'KZT'
-              ? 'border-white/50 bg-white text-black shadow-md'
-              : 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'}"
+              ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-white shadow-md'
+              : 'border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
           >
-            ₸ KZT (Kazakhstani Tenge • Rate 495.0)
+            ₸ KZT (Казахстанский тенге • Курс 495.0)
           </button>
         </div>
       </div>
 
-      <div class="rounded-2xl border border-white/10 bg-[#121215]/90 p-6 space-y-4">
-        <div class="border-b border-white/10 pb-3">
-          <h3 class="text-sm font-bold text-white tracking-tight">Modular Theme Descriptors</h3>
-          <p class="text-xs text-zinc-400">Hot-reloadable JSON theme engine</p>
+      <!-- Eco Mode Switcher -->
+      <div class="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] p-6 space-y-4">
+        <div class="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
+          <div>
+            <h3 class="text-sm font-bold text-[var(--text-primary)] tracking-tight flex items-center gap-2">
+              <span>🍃</span>
+              <span>Эко-режим для ноутбуков и портативок</span>
+              {#if ecoStore.enabled}
+                <span class="rounded bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] text-emerald-300 font-bold">АКТИВЕН</span>
+              {/if}
+            </h3>
+            <p class="text-xs text-[var(--text-secondary)]">Отключает анимации и размытие для экономии батареи (OLED Black)</p>
+          </div>
+          <button
+            type="button"
+            onclick={() => ecoStore.toggle()}
+            class="rounded-xl px-4 py-2 font-mono text-xs font-bold transition-all {ecoStore.enabled
+              ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
+              : 'border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-floating)]'}"
+          >
+            {ecoStore.enabled ? 'Включен' : 'Выключен'}
+          </button>
         </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {#each themeStore.availableThemes as theme}
-            <button
-              type="button"
-              onclick={() => themeStore.applyTheme(theme.id)}
-              class="flex flex-col justify-between rounded-xl border p-4 text-left transition-all {themeStore.activeThemeId === theme.id
-                ? 'border-white bg-white/10 shadow-lg'
-                : 'border-white/10 bg-white/[0.02] hover:border-white/25 hover:bg-white/[0.05]'}"
-            >
-              <div>
-                <span class="font-bold text-sm text-white">{theme.name}</span>
-                <p class="text-[11px] text-zinc-400 mt-1">Author: {theme.author}</p>
-              </div>
-              <span class="font-mono text-[10px] text-zinc-500 mt-3">ID: {theme.id}</span>
-            </button>
-          {/each}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs text-[var(--text-secondary)]">
+          <div class="rounded-lg bg-[var(--bg-surface-elevated)] p-3 border border-[var(--border-hairline)]">
+            <span class="text-zinc-500 block text-[10px] uppercase">Уровень батареи</span>
+            <span class="text-[var(--text-primary)] font-bold">{ecoStore.batteryLevel !== null ? `${ecoStore.batteryLevel}%` : 'Подключено к сети'}</span>
+          </div>
+          <div class="rounded-lg bg-[var(--bg-surface-elevated)] p-3 border border-[var(--border-hairline)]">
+            <span class="text-zinc-500 block text-[10px] uppercase">Источник питания</span>
+            <span class="text-[var(--text-primary)] font-bold">{ecoStore.isCharging ? 'Зарядка / Сеть 220V' : 'Работа от аккумулятора'}</span>
+          </div>
         </div>
       </div>
     </div>

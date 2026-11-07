@@ -2,15 +2,16 @@
 //!
 //! Queries live store feeds:
 //! 1. **Epic Games Store Free Promotions API**:
-//!    `https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US`
-//!    for 100% free weekly giveaways.
+//!    for 100% free weekly giveaways with accurate slug and client URLs.
 //! 2. **CheapShark / IsThereAnyDeal Price Radar**:
-//!    `https://www.cheapshark.com/api/1.0/deals?pageSize=12&sortBy=Savings&onSale=1`
-//!    for deep discounts & historical lows across Steam, GOG, and Humble.
+//!    for deep discounts across verified stores with custom user agent.
+//! 3. **Steam Store Live Showcase & Search**:
+//!    with honest KZT / USD pricing from Steam API without fake conversions.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::core::config::ConfigStore;
 use crate::error::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,19 +94,45 @@ pub struct SteamStoreShowcase {
     pub synced_at: chrono::DateTime<chrono::Utc>,
 }
 
+fn format_steam_price(cents: u64, currency: &str) -> String {
+    if cents == 0 {
+        return "Бесплатно".into();
+    }
+    let units = cents as f64 / 100.0;
+    if currency == "KZT" {
+        format!("{} ₸", crate::commands::store::format_int_spaces(units.round() as u64))
+    } else if currency == "USD" {
+        format!("${:.2}", units)
+    } else {
+        format!("{:.2} {}", units, currency)
+    }
+}
+
 #[tauri::command]
 pub async fn search_steam_store(
     http: State<'_, reqwest::Client>,
+    config: State<'_, ConfigStore>,
     query: String,
+    currency: Option<String>,
 ) -> Result<Vec<SteamStoreItem>> {
     let clean = query.trim();
     if clean.is_empty() {
         return Ok(Vec::new());
     }
 
+    let curr = match currency.as_deref() {
+        Some(c) if c.eq_ignore_ascii_case("KZT") => "KZT",
+        Some(c) if c.eq_ignore_ascii_case("USD") => "USD",
+        _ => {
+            let pref = config.snapshot().await.preferred_currency;
+            if pref.eq_ignore_ascii_case("KZT") { "KZT" } else { "USD" }
+        }
+    };
+    let cc = if curr == "KZT" { "kz" } else { "us" };
+
     let resp = http
         .get("https://store.steampowered.com/api/storesearch/")
-        .query(&[("term", clean), ("l", "russian"), ("cc", "RU")])
+        .query(&[("term", clean), ("l", "russian"), ("cc", cc)])
         .send()
         .await;
 
@@ -121,6 +148,7 @@ pub async fn search_steam_store(
         return Ok(Vec::new());
     };
 
+    let cdn_base = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps";
     let mut out = Vec::new();
     for it in items {
         let Some(id) = it.get("id").and_then(|v| v.as_u64()).map(|n| n as u32) else {
@@ -130,24 +158,23 @@ pub async fn search_steam_store(
         let price_obj = it.get("price");
         let initial = price_obj.and_then(|p| p.get("initial")).and_then(|v| v.as_u64());
         let final_p = price_obj.and_then(|p| p.get("final")).and_then(|v| v.as_u64());
-        let currency = price_obj.and_then(|p| p.get("currency")).and_then(|v| v.as_str()).unwrap_or("RUB").to_string();
 
-        let (discounted, discount_percent, formatted_final) = if let (Some(init), Some(fin)) = (initial, final_p) {
-            if init > fin && init > 0 {
-                let pct = (((init - fin) as f64 / init as f64) * 100.0).round() as u32;
-                (true, pct, Some(format!("{} {}", fin / 100, currency)))
-            } else if fin == 0 {
-                (false, 0, Some("Бесплатно".to_string()))
+        let (discounted, discount_percent, formatted_final, formatted_initial) =
+            if let (Some(init), Some(fin)) = (initial, final_p) {
+                if init > fin && init > 0 {
+                    let pct = (((init - fin) as f64 / init as f64) * 100.0).round() as u32;
+                    (true, pct, Some(format_steam_price(fin, curr)), Some(format_steam_price(init, curr)))
+                } else if fin == 0 {
+                    (false, 0, Some("Бесплатно".to_string()), None)
+                } else {
+                    (false, 0, Some(format_steam_price(fin, curr)), None)
+                }
             } else {
-                (false, 0, Some(format!("{} {}", fin / 100, currency)))
-            }
-        } else {
-            (false, 0, None)
-        };
+                (false, 0, None, None)
+            };
 
-        let header_image = Some(format!(
-            "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{id}/header.jpg"
-        ));
+        let header_image = Some(format!("{cdn_base}/{id}/header.jpg"));
+        let large_capsule_image = Some(format!("{cdn_base}/{id}/capsule_616x353.jpg"));
         let store_url = format!("https://store.steampowered.com/app/{id}");
         let install_uri = format!("steam://install/{id}");
 
@@ -158,11 +185,11 @@ pub async fn search_steam_store(
             discount_percent,
             original_price: initial,
             final_price: final_p,
-            currency,
-            formatted_original_price: initial.map(|p| format!("{} RUB", p / 100)),
+            currency: curr.to_string(),
+            formatted_original_price: formatted_initial,
             formatted_final_price: formatted_final,
             header_image,
-            large_capsule_image: None,
+            large_capsule_image,
             store_url,
             install_uri,
         });
@@ -172,13 +199,28 @@ pub async fn search_steam_store(
 }
 
 #[tauri::command]
-pub async fn get_steam_store_showcase(http: State<'_, reqwest::Client>) -> Result<SteamStoreShowcase> {
-    let url = "https://store.steampowered.com/api/featuredcategories/?l=russian";
-    let resp = match http.get(url).send().await {
+pub async fn get_steam_store_showcase(
+    http: State<'_, reqwest::Client>,
+    config: State<'_, ConfigStore>,
+    currency: Option<String>,
+) -> Result<SteamStoreShowcase> {
+    let curr = match currency.as_deref() {
+        Some(c) if c.eq_ignore_ascii_case("KZT") => "KZT",
+        Some(c) if c.eq_ignore_ascii_case("USD") => "USD",
+        _ => {
+            let pref = config.snapshot().await.preferred_currency;
+            if pref.eq_ignore_ascii_case("KZT") { "KZT" } else { "USD" }
+        }
+    };
+    let cc = if curr == "KZT" { "kz" } else { "us" };
+
+    let url = format!("https://store.steampowered.com/api/featuredcategories/?cc={cc}&l=russian");
+    let resp = match http.get(&url).send().await {
         Ok(r) => r.json::<serde_json::Value>().await.ok(),
         Err(_) => None,
     };
 
+    let cdn_base = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps";
     let parse_category = |root: &Option<serde_json::Value>, key: &str| -> Vec<SteamStoreItem> {
         let Some(json) = root else { return Vec::new(); };
         let Some(items) = json.pointer(&format!("/{key}/items")).and_then(|v| v.as_array()) else {
@@ -195,40 +237,25 @@ pub async fn get_steam_store_showcase(http: State<'_, reqwest::Client>) -> Resul
                     val.get("discount_percent").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 let original_price = val.get("original_price").and_then(|v| v.as_u64());
                 let final_price = val.get("final_price").and_then(|v| v.as_u64());
-                let currency = val
-                    .get("currency")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("RUB")
-                    .to_string();
+
                 let header_image = val
                     .get("header_image")
                     .and_then(|v| v.as_str())
-                    .map(String::from);
+                    .map(String::from)
+                    .or_else(|| Some(format!("{cdn_base}/{id}/header.jpg")));
+
                 let large_capsule_image = val
                     .get("large_capsule_image")
                     .and_then(|v| v.as_str())
-                    .map(String::from);
+                    .map(String::from)
+                    .or_else(|| Some(format!("{cdn_base}/{id}/capsule_616x353.jpg")));
 
-                let fmt_price = |cents: u64| -> String {
-                    if cents == 0 {
-                        return "Бесплатно".into();
-                    }
-                    let units = cents as f64 / 100.0;
-                    if currency == "RUB" {
-                        format!("{:.0} ₽", units)
-                    } else if currency == "KZT" {
-                        format!("{:.0} ₸", units)
-                    } else if currency == "USD" {
-                        format!("${:.2}", units)
-                    } else if currency == "EUR" {
-                        format!("{:.2} €", units)
-                    } else {
-                        format!("{:.2} {}", units, currency)
-                    }
+                let formatted_original_price = if discount_percent > 0 {
+                    original_price.map(|p| format_steam_price(p, curr))
+                } else {
+                    None
                 };
-
-                let formatted_original_price = original_price.map(fmt_price);
-                let formatted_final_price = final_price.map(fmt_price);
+                let formatted_final_price = final_price.map(|p| format_steam_price(p, curr));
 
                 Some(SteamStoreItem {
                     id,
@@ -237,7 +264,7 @@ pub async fn get_steam_store_showcase(http: State<'_, reqwest::Client>) -> Resul
                     discount_percent,
                     original_price,
                     final_price,
-                    currency,
+                    currency: curr.to_string(),
                     formatted_original_price,
                     formatted_final_price,
                     header_image,
@@ -255,10 +282,10 @@ pub async fn get_steam_store_showcase(http: State<'_, reqwest::Client>) -> Resul
     let coming_soon = parse_category(&resp, "coming_soon");
 
     if specials.is_empty() {
-        specials = fallback_steam_specials();
+        specials = fallback_steam_specials(curr);
     }
     if top_sellers.is_empty() {
-        top_sellers = fallback_steam_top_sellers();
+        top_sellers = fallback_steam_top_sellers(curr);
     }
 
     Ok(SteamStoreShowcase {
@@ -283,20 +310,22 @@ pub async fn get_itch_store_showcase(
     crate::platforms::itch::ItchPlatform::fetch_store_feed(&http, cat).await
 }
 
-fn fallback_steam_specials() -> Vec<SteamStoreItem> {
+fn fallback_steam_specials(curr: &str) -> Vec<SteamStoreItem> {
+    let cdn_base = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps";
+    let is_kzt = curr == "KZT";
     vec![
         SteamStoreItem {
             id: 1091500,
             name: "Cyberpunk 2077".into(),
             discounted: true,
             discount_percent: 50,
-            original_price: Some(399900),
-            final_price: Some(199900),
-            currency: "RUB".into(),
-            formatted_original_price: Some("3999 ₽".into()),
-            formatted_final_price: Some("1999 ₽".into()),
-            header_image: Some("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1091500/header.jpg".into()),
-            large_capsule_image: None,
+            original_price: Some(if is_kzt { 2699900 } else { 5999 }),
+            final_price: Some(if is_kzt { 1349950 } else { 2999 }),
+            currency: curr.into(),
+            formatted_original_price: Some(if is_kzt { "26 999 ₸".into() } else { "$59.99".into() }),
+            formatted_final_price: Some(if is_kzt { "13 499 ₸".into() } else { "$29.99".into() }),
+            header_image: Some(format!("{cdn_base}/1091500/header.jpg")),
+            large_capsule_image: Some(format!("{cdn_base}/1091500/capsule_616x353.jpg")),
             store_url: "https://store.steampowered.com/app/1091500".into(),
             install_uri: "steam://install/1091500".into(),
         },
@@ -305,20 +334,21 @@ fn fallback_steam_specials() -> Vec<SteamStoreItem> {
             name: "Hades".into(),
             discounted: true,
             discount_percent: 66,
-            original_price: Some(88000),
-            final_price: Some(29900),
-            currency: "RUB".into(),
-            formatted_original_price: Some("880 ₽".into()),
-            formatted_final_price: Some("299 ₽".into()),
-            header_image: Some("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1145360/header.jpg".into()),
-            large_capsule_image: None,
+            original_price: Some(if is_kzt { 880000 } else { 2499 }),
+            final_price: Some(if is_kzt { 299200 } else { 849 }),
+            currency: curr.into(),
+            formatted_original_price: Some(if is_kzt { "8 800 ₸".into() } else { "$24.99".into() }),
+            formatted_final_price: Some(if is_kzt { "2 992 ₸".into() } else { "$8.49".into() }),
+            header_image: Some(format!("{cdn_base}/1145360/header.jpg")),
+            large_capsule_image: Some(format!("{cdn_base}/1145360/capsule_616x353.jpg")),
             store_url: "https://store.steampowered.com/app/1145360".into(),
             install_uri: "steam://install/1145360".into(),
         },
     ]
 }
 
-fn fallback_steam_top_sellers() -> Vec<SteamStoreItem> {
+fn fallback_steam_top_sellers(curr: &str) -> Vec<SteamStoreItem> {
+    let cdn_base = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps";
     vec![
         SteamStoreItem {
             id: 730,
@@ -327,11 +357,11 @@ fn fallback_steam_top_sellers() -> Vec<SteamStoreItem> {
             discount_percent: 0,
             original_price: Some(0),
             final_price: Some(0),
-            currency: "RUB".into(),
+            currency: curr.into(),
             formatted_original_price: None,
             formatted_final_price: Some("Бесплатно".into()),
-            header_image: Some("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/730/header.jpg".into()),
-            large_capsule_image: None,
+            header_image: Some(format!("{cdn_base}/730/header.jpg")),
+            large_capsule_image: Some(format!("{cdn_base}/730/capsule_616x353.jpg")),
             store_url: "https://store.steampowered.com/app/730".into(),
             install_uri: "steam://install/730".into(),
         },
@@ -342,22 +372,60 @@ fn fallback_steam_top_sellers() -> Vec<SteamStoreItem> {
             discount_percent: 0,
             original_price: Some(0),
             final_price: Some(0),
-            currency: "RUB".into(),
+            currency: curr.into(),
             formatted_original_price: None,
             formatted_final_price: Some("Бесплатно".into()),
-            header_image: Some("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/570/header.jpg".into()),
-            large_capsule_image: None,
+            header_image: Some(format!("{cdn_base}/570/header.jpg")),
+            large_capsule_image: Some(format!("{cdn_base}/570/capsule_616x353.jpg")),
             store_url: "https://store.steampowered.com/app/570".into(),
             install_uri: "steam://install/570".into(),
         },
     ]
 }
 
-async fn fetch_epic_free_games(http: &reqwest::Client) -> Result<Vec<DealOffer>> {
-    let url = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=en-US&country=US&allowCountries=US";
-    let resp: serde_json::Value = http.get(url).send().await?.json().await?;
+fn extract_epic_slug(el: &serde_json::Value) -> String {
+    let mut slug = el
+        .pointer("/catalogNs/mappings/0/pageSlug")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if slug.is_empty() {
+        slug = el
+            .pointer("/offerMappings/0/pageSlug")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+    }
+    if slug.is_empty() {
+        slug = el.get("productSlug").and_then(|v| v.as_str()).unwrap_or("");
+    }
+    if slug.is_empty() {
+        slug = el.get("urlSlug").and_then(|v| v.as_str()).unwrap_or("");
+    }
+    let clean = slug.trim();
+    clean.trim_end_matches("/home").to_string()
+}
 
-    let Some(elements) = resp
+async fn fetch_epic_free_games(http: &reqwest::Client) -> Result<Vec<DealOffer>> {
+    let url = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=ru-RU&country=KZ&allowCountries=KZ";
+    let resp = match http
+        .get(url)
+        .header("User-Agent", "OmniLauncher/0.1.2")
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(_) => return Ok(Vec::new()),
+        Err(e) => {
+            tracing::warn!(error = %e, "Epic free games request failed");
+            return Ok(Vec::new());
+        }
+    };
+
+    let resp_json: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let Some(elements) = resp_json
         .pointer("/data/Catalog/searchStore/elements")
         .and_then(|v| v.as_array())
     else {
@@ -393,14 +461,13 @@ async fn fetch_epic_free_games(http: &reqwest::Client) -> Result<Vec<DealOffer>>
             .unwrap_or(false);
 
         if discount_price == 0.0 && has_active_promo {
-            let slug = el
-                .get("productSlug")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default();
+            let slug = extract_epic_slug(el);
             let thumb = el
                 .get("keyImages")
                 .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
+                .and_then(|arr| arr.iter().find(|img| {
+                    img.get("type").and_then(|t| t.as_str()).map(|t| t == "OfferImageWide" || t == "DieselStoreFrontWide").unwrap_or(false)
+                }).or_else(|| arr.first()))
                 .and_then(|img| img.get("url"))
                 .and_then(|v| v.as_str())
                 .map(String::from);
@@ -409,6 +476,12 @@ async fn fetch_epic_free_games(http: &reqwest::Client) -> Result<Vec<DealOffer>>
                 .pointer("/promotions/promotionalOffers/0/promotionalOffers/0/endDate")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+
+            let web_url = if slug.is_empty() {
+                "https://store.epicgames.com/ru/free-games".to_string()
+            } else {
+                format!("https://store.epicgames.com/ru/p/{slug}")
+            };
 
             offers.push(DealOffer {
                 id: format!("egs:{title}"),
@@ -420,11 +493,7 @@ async fn fetch_epic_free_games(http: &reqwest::Client) -> Result<Vec<DealOffer>>
                 savings_percent: 100,
                 badge: "100% FREE".into(),
                 thumb_url: thumb,
-                url: if slug.is_empty() {
-                    "https://store.epicgames.com/en-US/free-games".into()
-                } else {
-                    format!("https://store.epicgames.com/en-US/p/{slug}")
-                },
+                url: web_url,
                 expires_at: end_date,
                 is_historical_low: true,
             });
@@ -448,7 +517,30 @@ struct CheapSharkDeal {
 
 async fn fetch_cheapshark_deals(http: &reqwest::Client) -> Result<Vec<DealOffer>> {
     let url = "https://www.cheapshark.com/api/1.0/deals?storeID=1&pageSize=8&onSale=1&AAA=1";
-    let list: Vec<CheapSharkDeal> = http.get(url).send().await?.json().await?;
+    let resp = match http
+        .get(url)
+        .header("User-Agent", "OmniLauncher/0.1.2")
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            tracing::warn!(status = %r.status(), "CheapShark returned non-success status");
+            return Ok(Vec::new());
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "CheapShark deals request failed");
+            return Ok(Vec::new());
+        }
+    };
+
+    let list: Vec<CheapSharkDeal> = match resp.json().await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!(error = %e, "CheapShark JSON decode error");
+            return Ok(Vec::new());
+        }
+    };
 
     let mut out = Vec::with_capacity(list.len());
     for d in list {
@@ -495,8 +587,8 @@ fn fallback_freebies() -> Vec<DealOffer> {
             savings_percent: 100,
             badge: "100% FREE".into(),
             thumb_url: None,
-            url: "https://store.epicgames.com/en-US/free-games".into(),
-            expires_at: Some("Thursday 16:00 UTC".into()),
+            url: "https://store.epicgames.com/ru/free-games".into(),
+            expires_at: Some("Четверг 16:00 UTC".into()),
             is_historical_low: true,
         },
         DealOffer {
@@ -510,7 +602,7 @@ fn fallback_freebies() -> Vec<DealOffer> {
             badge: "100% FREE".into(),
             thumb_url: None,
             url: "https://www.gog.com/".into(),
-            expires_at: Some("Limited Window".into()),
+            expires_at: Some("Ограниченное время".into()),
             is_historical_low: true,
         },
     ]

@@ -104,8 +104,8 @@
           onclick={() => onSelect(item.id)}
           class="group flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-all {active ===
           item.id
-            ? 'bg-white text-black font-semibold shadow-sm'
-            : 'text-zinc-400 hover:bg-white/[0.06] hover:text-white'}"
+            ? 'bg-[var(--accent-primary)] text-[var(--accent-primary-contrast,#ffffff)] font-semibold shadow-sm'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
         >
           <div class="flex items-center gap-2.5">
             <svg
@@ -126,8 +126,8 @@
             <span
               class="rounded-md px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wider {active ===
               item.id
-                ? 'bg-black/15 text-black'
-                : 'bg-white/10 text-zinc-300'}"
+                ? 'bg-black/20 text-inherit'
+                : 'bg-white/10 text-[var(--text-secondary)]'}"
             >
               {item.badge()}
             </span>
@@ -144,15 +144,15 @@
           onclick={() => onSelect(item.id)}
           class="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[11px] font-medium transition-all {active ===
           item.id
-            ? 'bg-white text-black font-semibold shadow-sm'
-            : 'text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200'}"
+            ? 'bg-[var(--accent-primary)] text-[var(--accent-primary-contrast,#ffffff)] font-semibold shadow-sm'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--border-subtle)] hover:text-[var(--text-primary)]'}"
         >
           <span>{item.label}</span>
           {#if item.badge && String(item.badge()) !== '0'}
             <span
               class="rounded px-1.5 py-0.5 font-mono text-[8px] {active === item.id
-                ? 'bg-black/15 text-black font-semibold'
-                : 'bg-white/5 text-zinc-400'}"
+                ? 'bg-black/20 text-inherit font-semibold'
+                : 'bg-white/5 text-[var(--text-secondary)]'}"
             >
               {item.badge()}
             </span>

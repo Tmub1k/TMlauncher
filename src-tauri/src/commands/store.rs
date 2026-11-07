@@ -272,23 +272,27 @@ pub fn convert_price_to_kzt(usd: f64) -> u64 {
     }
 }
 
+pub fn format_int_spaces(num: u64) -> String {
+    let s = num.to_string();
+    let mut out = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    for (i, ch) in chars.iter().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(*ch);
+    }
+    out
+}
+
 pub fn format_price_string(amount: f64, currency: &str) -> String {
     if amount == 0.0 {
         return "Free to Play".to_string();
     }
     if currency == "KZT" {
         let kzt_val = convert_price_to_kzt(amount);
-        let s = kzt_val.to_string();
-        let mut formatted = String::new();
-        let chars: Vec<char> = s.chars().collect();
-        let len = chars.len();
-        for (i, ch) in chars.iter().enumerate() {
-            if i > 0 && (len - i) % 3 == 0 {
-                formatted.push(' ');
-            }
-            formatted.push(*ch);
-        }
-        format!("{} ₸", formatted)
+        format!("{} ₸", format_int_spaces(kzt_val))
     } else {
         format!("${:.2}", amount)
     }

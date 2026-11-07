@@ -46,6 +46,7 @@
   } from '../stores/library';
   import { fetchUnifiedFriends, type UnifiedFriend } from '../stores/friends';
   import { themeStore, type WindowEffectKind } from '../stores/theme';
+  import { themeEngine } from '../themes/theme-engine';
 
   // ---- Reactive State (Svelte 5 Runes) --------------------------------------
   let games = $state<Game[]>([]);
@@ -72,7 +73,8 @@
   let propertiesGame = $state<any | null>(null);
   let storeModal = $state<InAppStoreState>({ open: false, url: '', title: '' });
 
-  // Vibrancy selector
+  // Theme selector
+  let currentThemeId = $state(themeEngine.activeThemeId);
   let vibrancy = $state<WindowEffectKind>(themeStore.vibrancy);
 
   // ---- Derived State --------------------------------------------------------
@@ -223,11 +225,16 @@
       }
     })();
 
+    const unsubTheme = themeEngine.subscribe((t) => {
+      currentThemeId = t.id;
+    });
+
     const unsubStore = inAppStore.subscribe((s) => {
       storeModal = s;
     });
 
     return () => {
+      unsubTheme();
       unsubStore();
       unlisten?.();
     };
@@ -313,11 +320,11 @@
   <div data-scroll-viewport class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
     <!-- Top Command Bar -->
     <header
-      class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] bg-[#09090b]/80 px-6 py-3.5 backdrop-blur-xl"
+      class="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] bg-[var(--bg-canvas)]/80 px-6 py-3.5 backdrop-blur-xl"
     >
       <div class="flex items-center gap-3">
         <span
-          class="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 font-mono text-[11px] uppercase tracking-widest text-zinc-200"
+          class="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2.5 py-1 font-mono text-[11px] uppercase tracking-widest text-[var(--text-primary)]"
         >
           {#if activeSection === 'home' || activeSection === 'store'}
             STORE
@@ -342,13 +349,13 @@
           {/if}
         </span>
         {#if activeSection === 'library'}
-          <span class="font-mono text-xs text-zinc-400">
+          <span class="font-mono text-xs text-[var(--text-secondary)]">
             {filteredGames.length} Игр ({installedCount} Установлено, {uninstalledCount} в облаке)
           </span>
         {/if}
       </div>
 
-      <!-- Controls: Vibrancy Switcher + Save Vault + Storage + Rescan -->
+      <!-- Controls: Theme Switcher + Save Vault + Storage + Rescan -->
       <div class="flex flex-wrap items-center gap-2.5">
         <button
           type="button"
@@ -356,7 +363,7 @@
             saveVaultGame = filteredGames[0] || null;
             saveVaultOpen = true;
           }}
-          class="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[#121215] px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-[var(--border-active)] hover:bg-[#18181b]"
+          class="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-active)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
           title="Save-State Time Machine (Бэкапы и таймлайн сохранений)"
         >
           <span>💾</span>
@@ -366,30 +373,33 @@
         <button
           type="button"
           onclick={() => (storageManagerOpen = true)}
-          class="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[#121215] px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-[var(--border-active)] hover:bg-[#18181b]"
+          class="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-active)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
           title="Storage & Shader Cache Reclaimer (Очистка кэша шейдеров DirectX/Vulkan)"
         >
           <span>🧹</span>
           <span>Storage</span>
         </button>
 
+        <!-- Quick Theme Selector from themeEngine -->
         <select
-          aria-label="Эффект окна Windows"
-          value={vibrancy}
-          onchange={(e) =>
-            cycleVibrancy((e.currentTarget as HTMLSelectElement).value as WindowEffectKind)}
-          class="rounded-lg border border-[var(--border-subtle)] bg-[#121215] px-2.5 py-1.5 font-mono text-[11px] text-zinc-300 outline-none"
+          aria-label="Тема оформления"
+          value={currentThemeId}
+          onchange={(e) => {
+            const next = (e.currentTarget as HTMLSelectElement).value;
+            themeEngine.applyTheme(next);
+            currentThemeId = next;
+          }}
+          class="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--text-primary)] outline-none cursor-pointer hover:border-[var(--border-active)] transition-colors"
         >
-          <option value="mica">Mica (Windows 11)</option>
-          <option value="tabbed">Mica Alt</option>
-          <option value="acrylic">Acrylic</option>
-          <option value="none">Тёмный стиль</option>
+          {#each themeEngine.getAvailableThemes() as t}
+            <option value={t.id}>{t.name}</option>
+          {/each}
         </select>
 
         <button
           type="button"
           onclick={() => (customGameModalOpen = true)}
-          class="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:border-white/30 hover:bg-white/20"
+          class="flex items-center gap-1.5 rounded-lg border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/15 px-3 py-1.5 text-xs font-semibold text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-primary)]/25"
           title="Добавить стороннюю игру или приложение в библиотеку"
         >
           <span>+</span>
@@ -399,7 +409,7 @@
         <button
           type="button"
           onclick={handleRefresh}
-          class="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[#121215] px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-[var(--border-active)] hover:bg-[#18181b]"
+          class="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-active)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
         >
           <svg class="h-3.5 w-3.5 fill-current {loading ? 'animate-spin' : ''}" viewBox="0 0 24 24">
             <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
@@ -781,38 +791,41 @@
 
       <div class="space-y-4 py-4 text-xs">
         <div>
-          <label class="block font-medium text-zinc-300 mb-1">
+          <label for="custom-game-path" class="block font-medium text-[var(--text-secondary)] mb-1">
             Путь к исполняемому файлу (.exe / .lnk / .bat) <span class="text-red-400">*</span>
           </label>
           <input
+            id="custom-game-path"
             type="text"
             bind:value={customGamePath}
             placeholder="C:\Games\MyGame\game.exe"
-            class="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 font-mono text-xs text-white placeholder-zinc-500 outline-none focus:border-white/30"
+            class="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-canvas)]/60 px-3.5 py-2 font-mono text-xs text-[var(--text-primary)] placeholder-zinc-500 outline-none focus:border-[var(--accent-primary)]"
           />
         </div>
 
         <div>
-          <label class="block font-medium text-zinc-300 mb-1">
+          <label for="custom-game-title" class="block font-medium text-[var(--text-secondary)] mb-1">
             Название игры (необязательно)
           </label>
           <input
+            id="custom-game-title"
             type="text"
             bind:value={customGameTitle}
             placeholder="Будет определено из файла если пусто"
-            class="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-white/30"
+            class="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-canvas)]/60 px-3.5 py-2 text-xs text-[var(--text-primary)] placeholder-zinc-500 outline-none focus:border-[var(--accent-primary)]"
           />
         </div>
 
         <div>
-          <label class="block font-medium text-zinc-300 mb-1">
+          <label for="custom-game-cover" class="block font-medium text-[var(--text-secondary)] mb-1">
             URL обложки / постера (необязательно)
           </label>
           <input
+            id="custom-game-cover"
             type="text"
             bind:value={customGameCover}
             placeholder="https://... или путь к картинке"
-            class="w-full rounded-xl border border-white/10 bg-black/60 px-3.5 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-white/30"
+            class="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-canvas)]/60 px-3.5 py-2 text-xs text-[var(--text-primary)] placeholder-zinc-500 outline-none focus:border-[var(--accent-primary)]"
           />
         </div>
       </div>

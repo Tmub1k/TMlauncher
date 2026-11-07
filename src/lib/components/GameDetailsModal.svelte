@@ -19,6 +19,7 @@
     resolveArtUrl,
     type Game,
   } from '../stores/library';
+  import { storeLinkManager, type StoreOpenMode } from '$lib/utils/storeLink';
 
   interface SteamAchievement {
     apiName: string;
@@ -131,7 +132,7 @@
     }
   }
 
-  function handleOpenStoreInApp() {
+  function handleOpenStore(modeOverride?: StoreOpenMode) {
     if (!game) return;
     let url = '';
     if (game.platform === 'steam') {
@@ -143,7 +144,13 @@
     } else {
       url = `https://www.google.com/search?q=${encodeURIComponent(game.title + ' game')}`;
     }
-    openInAppStore(url, `${game.title} • Магазин`);
+    storeLinkManager.open({
+      url,
+      title: `${game.title} • Магазин`,
+      appId: game.platform === 'steam' ? game.nativeId : undefined,
+      platform: game.platform,
+      mode: modeOverride,
+    });
   }
 
   async function openFolder(kind: 'install' | 'save' | 'mods') {
@@ -296,14 +303,27 @@
               </button>
             {/if}
 
-            <button
-              type="button"
-              onclick={handleOpenStoreInApp}
-              class="btn-minimal px-4 py-2.5 text-xs"
-              title="Открыть в магазине внутри лаунчера"
-            >
-              В магазин ↗
-            </button>
+            <div class="flex items-center gap-1.5">
+              <button
+                type="button"
+                onclick={() => handleOpenStore('client')}
+                class="btn-minimal px-3 py-2.5 text-xs flex items-center gap-1.5"
+                title={`Открыть страницу прямо в приложении ${game.platform === 'epic' ? 'Epic Games' : 'Steam'}`}
+              >
+                <span>🎮</span>
+                <span>{game.platform === 'epic' ? 'В Epic Games' : 'В Steam'}</span>
+              </button>
+
+              <button
+                type="button"
+                onclick={() => handleOpenStore('launcher')}
+                class="btn-minimal px-3 py-2.5 text-xs flex items-center gap-1.5"
+                title="Открыть во встроенном окне лаунчера"
+              >
+                <span>❐</span>
+                <span>В лаунчере</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

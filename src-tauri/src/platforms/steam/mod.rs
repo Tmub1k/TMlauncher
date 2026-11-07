@@ -884,20 +884,20 @@ impl SteamPlatform {
             }
         }
 
-        // 3. Fallback to official Steam CDN (using high-speed shared akamai).
+        // 3. Fallback to official Steam Cloudflare CDN.
         let poster = local_poster.or_else(|| {
             Some(ArtRef::Remote(format!(
-                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_600x900.jpg"
+                "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_600x900.jpg"
             )))
         });
         let hero = local_hero.or_else(|| {
             Some(ArtRef::Remote(format!(
-                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_hero.jpg"
+                "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_hero.jpg"
             )))
         });
         let logo = local_logo.or_else(|| {
             Some(ArtRef::Remote(format!(
-                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/logo.png"
+                "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{app_id}/logo.png"
             )))
         });
 
@@ -1042,10 +1042,13 @@ impl SteamPlatform {
         // Load persistent names cache strictly as a name lookup dictionary, not as ownership candidates
         let mut names_cache: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
         if let Some(data_dir) = dirs::data_dir() {
-            let cache_file = data_dir.join("OmniLauncher").join("steam_names_cache.json");
-            if let Ok(content) = std::fs::read_to_string(&cache_file) {
-                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<u32, String>>(&content) {
-                    names_cache = map;
+            let dir = data_dir.join("OmniLauncher");
+            for file in ["steam_app_names.json", "steam_names_cache.json"] {
+                let cache_file = dir.join(file);
+                if let Ok(content) = std::fs::read_to_string(&cache_file) {
+                    if let Ok(map) = serde_json::from_str::<std::collections::HashMap<u32, String>>(&content) {
+                        names_cache.extend(map);
+                    }
                 }
             }
         }
@@ -1089,6 +1092,79 @@ impl SteamPlatform {
 
         Ok(games)
     }
+
+    pub fn merge_into_names_cache(incoming: &std::collections::HashMap<u32, String>) {
+        if incoming.is_empty() {
+            return;
+        }
+        if let Some(data_dir) = dirs::data_dir() {
+            let dir = data_dir.join("OmniLauncher");
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join("steam_app_names.json");
+            let mut map: std::collections::HashMap<u32, String> = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+            let before_len = map.len();
+            for (k, v) in incoming {
+                map.insert(*k, v.clone());
+            }
+            if map.len() > before_len {
+                if let Ok(s) = serde_json::to_string_pretty(&map) {
+                    let _ = std::fs::write(&path, s);
+                }
+            }
+        }
+    }
+
+    pub async fn resolve_unnamed_games(http: &reqwest::Client, games: &mut [Game]) {
+        let mut names_cache: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+        if let Some(data_dir) = dirs::data_dir() {
+            let dir = data_dir.join("OmniLauncher");
+            for file in ["steam_app_names.json", "steam_names_cache.json"] {
+                let p = dir.join(file);
+                if let Ok(s) = std::fs::read_to_string(&p) {
+                    if let Ok(m) = serde_json::from_str::<std::collections::HashMap<u32, String>>(&s) {
+                        names_cache.extend(m);
+                    }
+                }
+            }
+        }
+
+        let mut newly_resolved = std::collections::HashMap::new();
+
+        for game in games.iter_mut() {
+            if game.title.starts_with("Steam App #") {
+                if let Ok(app_id) = game.id.native_id.parse::<u32>() {
+                    if let Some(cached_name) = names_cache.get(&app_id) {
+                        game.title = cached_name.clone();
+                    } else {
+                        let url = format!(
+                            "https://store.steampowered.com/api/appdetails?appids={app_id}&filters=basic&l=russian"
+                        );
+                        if let Ok(resp) = http.get(&url).send().await {
+                            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                                if let Some(name) = json
+                                    .pointer(&format!("/{app_id}/data/name"))
+                                    .and_then(|v| v.as_str())
+                                {
+                                    if !name.trim().is_empty() {
+                                        game.title = name.to_string();
+                                        names_cache.insert(app_id, name.to_string());
+                                        newly_resolved.insert(app_id, name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !newly_resolved.is_empty() {
+            Self::merge_into_names_cache(&newly_resolved);
+        }
+    }
 }
 
 #[async_trait]
@@ -1102,7 +1178,9 @@ impl PlatformConnector for SteamPlatform {
     }
 
     async fn detect_installed_games(&self) -> Result<Vec<Game>> {
-        tokio::task::spawn_blocking(Self::scan_installed_blocking).await?
+        let mut games = tokio::task::spawn_blocking(Self::scan_installed_blocking).await??;
+        Self::resolve_unnamed_games(&self.http, &mut games).await;
+        Ok(games)
     }
 
     async fn launch_game(&self, native_id: &str) -> Result<LaunchHandle> {
@@ -1129,36 +1207,111 @@ impl PlatformConnector for SteamPlatform {
 
     async fn sync_profile(&self) -> Result<ProfileSync> {
         let creds = self.credentials().await;
-        let api_key = creds
-            .api_key
-            .filter(|s| !s.trim().is_empty())
-            .ok_or(LauncherError::AuthRequired("Steam Web API key is not configured"))?;
-        let steam_id = creds
-            .steam_id64
-            .filter(|s| !s.trim().is_empty())
-            .ok_or(LauncherError::AuthRequired("SteamID64 is not configured"))?;
+        let api_key = creds.api_key.filter(|s| !s.trim().is_empty());
+        let mut steam_id = creds.steam_id64.filter(|s| !s.trim().is_empty());
 
-        // 1. Fetch player summary (persona name + avatar).
-        let summary_url = format!(
-            "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={api_key}&steamids={steam_id}"
-        );
-        let summary_resp: PlayerSummariesEnvelope =
-            self.http.get(&summary_url).send().await?.json().await?;
-        let player = summary_resp.response.players.into_iter().next();
+        if steam_id.is_none() {
+            if let Ok(resolved) = self.resolve_profile().await {
+                steam_id = Some(resolved.steam_id);
+            }
+        }
 
-        // 2. Fetch owned games count & total playtime.
-        let owned_url = format!(
-            "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={api_key}&steamid={steam_id}&include_appinfo=1&include_played_free_games=1"
-        );
-        let owned_resp: OwnedGamesEnvelope =
-            self.http.get(&owned_url).send().await?.json().await?;
+        let Some(steam_id) = steam_id else {
+            return Err(LauncherError::AuthRequired("SteamID64 is not configured and could not be detected"));
+        };
+
+        // 1. If valid user API key is configured, query official Web API
+        if let Some(key) = api_key {
+            let summary_url = format!(
+                "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={key}&steamids={steam_id}"
+            );
+            if let Ok(resp) = self.http.get(&summary_url).send().await {
+                if let Ok(summary_resp) = resp.json::<PlayerSummariesEnvelope>().await {
+                    let player = summary_resp.response.players.into_iter().next();
+                    let owned_url = format!(
+                        "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={key}&steamid={steam_id}&include_appinfo=1&include_played_free_games=1"
+                    );
+                    let owned_count = if let Ok(resp) = self.http.get(&owned_url).send().await {
+                        resp.json::<OwnedGamesEnvelope>().await.ok().and_then(|r| r.response.game_count).unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                    return Ok(ProfileSync {
+                        platform: PlatformKind::Steam,
+                        account_id: Some(steam_id),
+                        display_name: player.as_ref().map(|p| p.personaname.clone()),
+                        avatar_url: player.and_then(|p| p.avatarfull),
+                        owned_games: owned_count,
+                        synced_at: Utc::now(),
+                    });
+                }
+            }
+        }
+
+        // 2. Fallback: Public profile XML / games list when API key is not configured
+        let mut persona_name = None;
+        let mut avatar_url = None;
+
+        let profile_xml_url = format!("https://steamcommunity.com/profiles/{steam_id}/?xml=1");
+        if let Ok(resp) = self.http.get(&profile_xml_url).send().await {
+            if let Ok(text) = resp.text().await {
+                if let Some(re) = regex::Regex::new(r"<steamID>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</steamID>").ok() {
+                    if let Some(cap) = re.captures(&text) {
+                        persona_name = cap.get(1).map(|m| m.as_str().to_string());
+                    }
+                }
+                if let Some(re) = regex::Regex::new(r"<avatarFull>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</avatarFull>").ok() {
+                    if let Some(cap) = re.captures(&text) {
+                        avatar_url = cap.get(1).map(|m| m.as_str().to_string());
+                    }
+                }
+            }
+        }
+
+        if persona_name.is_none() {
+            if let Ok(resolved) = self.resolve_profile().await {
+                persona_name = Some(resolved.persona_name);
+                avatar_url = avatar_url.or(Some(resolved.avatar_url));
+            }
+        }
+
+        let games_xml_url = format!("https://steamcommunity.com/profiles/{steam_id}/games?tab=all&xml=1");
+        let mut owned_count = 0;
+        if let Ok(resp) = self.http.get(&games_xml_url).send().await {
+            if let Ok(text) = resp.text().await {
+                if let Some(re) = regex::Regex::new(r"<appID>(\d+)</appID>\s*<name>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</name>").ok() {
+                    let mut resolved_map = std::collections::HashMap::new();
+                    for cap in re.captures_iter(&text) {
+                        owned_count += 1;
+                        if let (Some(id_m), Some(name_m)) = (cap.get(1), cap.get(2)) {
+                            if let Ok(aid) = id_m.as_str().parse::<u32>() {
+                                let gname = name_m.as_str().to_string();
+                                if !gname.is_empty() {
+                                    resolved_map.insert(aid, gname);
+                                }
+                            }
+                        }
+                    }
+                    if !resolved_map.is_empty() {
+                        Self::merge_into_names_cache(&resolved_map);
+                    }
+                }
+            }
+        }
+
+        if owned_count == 0 {
+            if let Ok(installed) = self.detect_installed_games().await {
+                owned_count = installed.len();
+            }
+        }
 
         Ok(ProfileSync {
             platform: PlatformKind::Steam,
             account_id: Some(steam_id),
-            display_name: player.as_ref().map(|p| p.personaname.clone()),
-            avatar_url: player.and_then(|p| p.avatarfull),
-            owned_games: owned_resp.response.game_count.unwrap_or(0),
+            display_name: persona_name,
+            avatar_url,
+            owned_games: owned_count,
             synced_at: Utc::now(),
         })
     }

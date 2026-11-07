@@ -169,6 +169,8 @@ pub fn run() {
             commands::roulette::get_hltb_benchmark,
             commands::window::set_window_effect,
             commands::window::open_in_app_store_window,
+            commands::window::open_in_store_webview,
+            commands::window::open_store_link,
             commands::window::open_external_url,
             commands::window::get_store_page_html,
             commands::custom_games::add_custom_game,

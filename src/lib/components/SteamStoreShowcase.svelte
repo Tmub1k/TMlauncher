@@ -9,10 +9,11 @@
   import {
     fetchSteamStoreShowcase,
     installGameById,
-    openInAppStore,
     type SteamStoreItem,
     type SteamStoreShowcase as ShowcaseData,
   } from '../stores/library';
+  import { currencyStore } from '$lib/stores/store';
+  import { storeLinkManager, type StoreOpenMode } from '$lib/utils/storeLink';
 
   type StoreTab = 'specials' | 'topSellers' | 'newReleases' | 'comingSoon';
 
@@ -24,13 +25,28 @@
   let loading = $state(true);
   let actionBusy = $state<number | null>(null);
   let notification = $state<string | null>(null);
+  let imageFailAttempts = $state<Record<number, number>>({});
+  let lastCurrency = $state<'USD' | 'KZT'>(currencyStore.code);
 
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-  async function loadShowcase() {
+  function getShowcaseImage(item: SteamStoreItem): string | null {
+    const attempts = imageFailAttempts[item.id] || 0;
+    const initial = item.largeCapsuleImage ?? item.headerImage;
+    if (attempts === 0 && initial) return initial;
+    if (attempts <= 1) {
+      return `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${item.id}/header.jpg`;
+    }
+    if (attempts <= 2) {
+      return `https://cdn.akamai.steamstatic.com/steam/apps/${item.id}/capsule_616x353.jpg`;
+    }
+    return null;
+  }
+
+  async function loadShowcase(curr = currencyStore.code) {
     loading = true;
     try {
-      showcase = await fetchSteamStoreShowcase();
+      showcase = await fetchSteamStoreShowcase(curr);
     } catch (err) {
       console.error('Failed to load Steam store showcase:', err);
     } finally {
@@ -40,6 +56,15 @@
 
   onMount(() => {
     loadShowcase();
+  });
+
+  // Re-fetch when currency changes
+  $effect(() => {
+    const currentCode = currencyStore.code;
+    if (currentCode !== lastCurrency) {
+      lastCurrency = currentCode;
+      loadShowcase(currentCode);
+    }
   });
 
   $effect(() => {
@@ -53,7 +78,10 @@
     searching = true;
     searchTimer = setTimeout(async () => {
       try {
-        searchResults = await invoke<SteamStoreItem[]>('search_steam_store', { query: q });
+        searchResults = await invoke<SteamStoreItem[]>('search_steam_store', {
+          query: q,
+          currency: currencyStore.code,
+        });
       } catch (err) {
         console.error('Failed to search entire Steam store:', err);
       } finally {
@@ -93,8 +121,15 @@
     }
   }
 
-  function handleOpenStore(item: SteamStoreItem) {
-    openInAppStore(item.storeUrl, `${item.name} • Steam Store`, item.installUri);
+  function handleOpenStore(item: SteamStoreItem, modeOverride?: StoreOpenMode) {
+    storeLinkManager.open({
+      url: item.storeUrl,
+      title: `${item.name} • Steam Store`,
+      appId: item.id,
+      platform: 'steam',
+      installUri: item.installUri,
+      mode: modeOverride,
+    });
   }
 </script>
 
@@ -211,22 +246,27 @@
   {:else}
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
       {#each currentItems as item (item.id)}
+        {@const cardImg = getShowcaseImage(item)}
         <div
-          class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/10 bg-[#121215] transition-all duration-300 hover:-translate-y-1 hover:border-white/30 hover:shadow-2xl"
+          class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] transition-all duration-300 hover:-translate-y-1 hover:border-[var(--border-active)] hover:shadow-2xl"
         >
           <!-- Game Banner -->
           <div class="relative aspect-[16/9] w-full overflow-hidden bg-black/40">
-            {#if item.largeCapsuleImage || item.headerImage}
+            {#if cardImg}
               <img
-                src={item.largeCapsuleImage ?? item.headerImage}
+                src={cardImg}
                 alt={item.name}
                 loading="lazy"
                 decoding="async"
+                onerror={() => {
+                  imageFailAttempts[item.id] = (imageFailAttempts[item.id] || 0) + 1;
+                }}
                 class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
               />
             {:else}
-              <div class="flex h-full w-full items-center justify-center font-mono text-xs text-zinc-500">
-                Steam Game
+              <div class="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-[var(--bg-surface-elevated)] to-[var(--bg-canvas)] p-3 font-mono text-xs text-[var(--accent-primary)]">
+                <span>STEAM #{item.id}</span>
+                <span class="text-[10px] text-[var(--text-primary)] text-center line-clamp-1 mt-1">{item.name}</span>
               </div>
             {/if}
 
@@ -249,26 +289,35 @@
           <!-- Metadata & Details -->
           <div class="flex flex-1 flex-col justify-between p-4">
             <div>
-              <h3 class="line-clamp-1 text-sm font-bold tracking-tight text-white group-hover:text-sky-300 transition-colors">
+              <h3 class="line-clamp-1 text-sm font-bold tracking-tight text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
                 {item.name}
               </h3>
 
               <div class="mt-2 flex items-baseline gap-2 font-mono text-xs">
                 {#if item.formattedFinalPrice}
-                  <span class="text-sm font-bold text-white">{item.formattedFinalPrice}</span>
+                  <span class="text-sm font-bold text-[var(--text-primary)]">{item.formattedFinalPrice}</span>
                 {/if}
                 {#if item.formattedOriginalPrice && item.discounted}
-                  <span class="text-zinc-500 line-through text-[11px]">{item.formattedOriginalPrice}</span>
+                  <span class="text-[var(--text-muted)] line-through text-[11px]">{item.formattedOriginalPrice}</span>
                 {/if}
               </div>
             </div>
 
-            <!-- Action Buttons: Open in Steam Store or Direct Download -->
-            <div class="mt-4 grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
+            <!-- Action Buttons: Open in Steam Client / Launcher or Direct Download -->
+            <div class="mt-4 flex items-center gap-1.5 pt-2 border-t border-[var(--border-hairline)]">
+              <button
+                type="button"
+                onclick={() => handleOpenStore(item, 'client')}
+                class="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-2 text-[var(--text-secondary)] hover:text-[var(--accent-primary)] hover:border-[var(--accent-primary)] transition-colors"
+                title="Открыть в приложении Steam"
+              >
+                <span class="font-bold text-xs">🎮</span>
+              </button>
+
               <button
                 type="button"
                 onclick={() => handleOpenStore(item)}
-                class="btn-game btn-game-dark py-2 text-xs"
+                class="btn-game btn-game-dark flex-1 py-1.5 text-xs"
               >
                 В магазин ↗
               </button>
@@ -277,12 +326,12 @@
                 type="button"
                 onclick={() => handleInstall(item)}
                 disabled={actionBusy === item.id}
-                class="btn-game btn-game-blue py-2 text-xs"
+                class="btn-game btn-game-blue px-3 py-1.5 text-xs"
+                title="Скачать игру"
               >
                 <svg class="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24">
                   <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                 </svg>
-                <span>{actionBusy === item.id ? 'Запуск…' : 'Скачать'}</span>
               </button>
             </div>
           </div>

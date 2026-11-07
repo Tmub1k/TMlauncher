@@ -37,31 +37,31 @@
   }
 </script>
 
-<div class="space-y-6 pb-12">
-  <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-[#121215]/80 p-5">
+<div class="space-y-6 pb-12 text-[var(--text-primary)]">
+  <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)]/80 p-5">
     <div>
-      <h2 class="text-lg font-black tracking-tight text-white">DOWNLOADS</h2>
-      <p class="font-mono text-xs text-zinc-400">{networkStore.settings.download_directory || 'Папка по умолчанию'}</p>
+      <h2 class="text-lg font-black tracking-tight text-[var(--text-primary)]">DOWNLOADS</h2>
+      <p class="font-mono text-xs text-[var(--text-secondary)]">{networkStore.settings.download_directory || 'Папка по умолчанию'}</p>
     </div>
     <button type="button" onclick={pickDir} class="btn-minimal px-4 py-2 text-xs">Выбрать папку</button>
   </div>
 
   <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
     {#each drives as d}
-      <div class="rounded-xl border border-white/10 bg-[#121215]/90 p-3">
-        <div class="flex justify-between font-mono text-xs text-zinc-300"><span>{d.drive}</span><span>{d.freeGb.toFixed(0)} GB free</span></div>
+      <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
+        <div class="flex justify-between font-mono text-xs text-[var(--text-secondary)]"><span>{d.drive}</span><span>{d.freeGb.toFixed(0)} GB free</span></div>
         <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
-          <div class="h-full bg-white/70" style="width:{d.usedPercentage}%"></div>
+          <div class="h-full bg-[var(--accent-primary)]" style="width:{d.usedPercentage}%"></div>
         </div>
       </div>
     {/each}
   </div>
 
   <section class="space-y-2">
-    <h3 class="text-sm font-bold text-white">Активные ({active.length})</h3>
+    <h3 class="text-sm font-bold text-[var(--text-primary)]">Активные ({active.length})</h3>
     {#each active as p (p.emulatorId)}
-      <div class="rounded-xl border border-white/10 bg-[#121215]/90 p-3">
-        <div class="flex justify-between font-mono text-xs text-zinc-300">
+      <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
+        <div class="flex justify-between font-mono text-xs text-[var(--text-secondary)]">
           <span>{p.emulatorId} · {p.phase}</span>
           <span>{Math.round(p.percentage)}% · {p.speedMbS.toFixed(1)} MB/s</span>
         </div>
@@ -70,19 +70,19 @@
         </div>
       </div>
     {:else}
-      <p class="text-xs text-zinc-500">Нет активных загрузок</p>
+      <p class="text-xs text-[var(--text-muted)]">Нет активных загрузок</p>
     {/each}
     {#each finished as p (p.emulatorId)}
-      <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 font-mono text-xs text-emerald-300">✓ {p.emulatorId}</div>
+      <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 font-mono text-xs text-emerald-400">✓ {p.emulatorId}</div>
     {/each}
   </section>
 
   <section class="space-y-2">
-    <h3 class="text-sm font-bold text-white">Не установлены ({queue.length})</h3>
+    <h3 class="text-sm font-bold text-[var(--text-primary)]">Не установлены ({queue.length})</h3>
     <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
       {#each queue as g (g.id)}
-        <div class="flex items-center justify-between rounded-xl border border-white/10 bg-[#121215]/90 px-3 py-2">
-          <span class="truncate text-xs text-white">{g.title}</span>
+        <div class="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-2">
+          <span class="truncate text-xs text-[var(--text-primary)]">{g.title}</span>
           <button type="button" disabled={busyId === g.id} onclick={() => install(g)} class="btn-chrome px-3 py-1 text-xs">
             {busyId === g.id ? '…' : 'Скачать'}
           </button>

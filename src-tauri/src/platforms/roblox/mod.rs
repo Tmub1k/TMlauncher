@@ -585,9 +585,7 @@ impl RobloxPlatform {
                                 place_id,
                                 name,
                                 last_played_timestamp: file_timestamp,
-                                thumbnail_url: Some(format!(
-                                    "https://thumbnails.roblox.com/v1/places/gameicons?placeIds={place_id}&size=512x512&format=Png&isCircular=false"
-                                )),
+                                thumbnail_url: None,
                                 universe_id,
                                 launch_url: Some(format!("roblox://experiences/start?placeId={place_id}")),
                             });
@@ -613,9 +611,7 @@ impl RobloxPlatform {
                                 place_id,
                                 name: format!("Roblox Experience #{place_id}"),
                                 last_played_timestamp: file_timestamp,
-                                thumbnail_url: Some(format!(
-                                    "https://thumbnails.roblox.com/v1/places/gameicons?placeIds={place_id}&size=512x512&format=Png&isCircular=false"
-                                )),
+                                thumbnail_url: None,
                                 universe_id: None,
                                 launch_url: Some(format!("roblox://experiences/start?placeId={place_id}")),
                             });
@@ -652,15 +648,10 @@ impl RobloxPlatform {
                     if let Some(data) = json.data {
                         for item in data {
                             if let Some(raw_img) = item.image_url {
-                                // For users in Russian Federation, wrap with Cloudflare weserv cache to bypass tr.rbxcdn.com blocks
-                                let proxied_url = if raw_img.contains("rbxcdn.com") {
-                                    let stripped = raw_img.trim_start_matches("https://").trim_start_matches("http://");
-                                    format!("https://images.weserv.nl/?url={}&w=512&h=512&fit=cover", stripped)
-                                } else {
-                                    raw_img
-                                };
-                                if let Some(p) = places_map.get_mut(&item.target_id) {
-                                    p.thumbnail_url = Some(proxied_url);
+                                if !raw_img.trim().is_empty() {
+                                    if let Some(p) = places_map.get_mut(&item.target_id) {
+                                        p.thumbnail_url = Some(raw_img);
+                                    }
                                 }
                             }
                         }
@@ -745,12 +736,14 @@ impl PlatformConnector for RobloxPlatform {
                         .unwrap_or_else(|| chrono::Utc::now()),
                 );
                 if let Some(thumb) = place.thumbnail_url {
-                    game.art = Artwork {
-                        poster: Some(ArtRef::Remote(thumb)),
-                        hero: None,
-                        logo: None,
-                        icon: None,
-                    };
+                    if !thumb.contains("/v1/places/gameicons") {
+                        game.art = Artwork {
+                            poster: Some(ArtRef::Remote(thumb)),
+                            hero: None,
+                            logo: None,
+                            icon: None,
+                        };
+                    }
                 }
                 games.push(game);
             }

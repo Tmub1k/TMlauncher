@@ -251,3 +251,121 @@ html[data-vibrancy="none"] body {
   backdrop-filter: none !important;
 }
 
+/* ==========================================================================
+   Global Theme Adaptation & CSS Variable Mapping
+   Ensures themeEngine variables take effect across all components
+   ========================================================================== */
+
+/* Universal background and surface variables mapping */
+.bg-\[\#09090b\] {
+  background-color: var(--bg-canvas) !important;
+}
+.bg-\[\#121215\] {
+  background-color: var(--bg-surface-base) !important;
+}
+.bg-\[\#121215\]\/80 {
+  background-color: color-mix(in srgb, var(--bg-surface-base) 80%, transparent) !important;
+}
+.bg-\[\#121215\]\/90 {
+  background-color: color-mix(in srgb, var(--bg-surface-base) 90%, transparent) !important;
+}
+.bg-\[\#18181b\] {
+  background-color: var(--bg-surface-elevated) !important;
+}
+.bg-\[\#18181c\] {
+  background-color: var(--bg-surface-elevated) !important;
+}
+.bg-\[\#202026\] {
+  background-color: var(--bg-surface-floating) !important;
+}
+
+/* Surfaces and panels */
+.panel-game {
+  background: var(--bg-surface-base) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+}
+
+.stat-box-game {
+  background: var(--bg-surface-elevated) !important;
+  border-color: var(--border-hairline) !important;
+  color: var(--text-primary) !important;
+}
+
+/* ==========================================================================
+   White Glass (Light Theme) High-Contrast Polish
+   ========================================================================== */
+html[data-theme="white-glass"] {
+  color-scheme: light;
+}
+
+html[data-theme="white-glass"] body {
+  color: var(--text-primary);
+  background-color: var(--bg-canvas);
+}
+
+html[data-theme="white-glass"] .text-white {
+  color: var(--text-primary, #0f172a) !important;
+}
+
+html[data-theme="white-glass"] .text-zinc-100,
+html[data-theme="white-glass"] .text-zinc-200,
+html[data-theme="white-glass"] .text-zinc-300 {
+  color: var(--text-secondary, #334155) !important;
+}
+
+html[data-theme="white-glass"] .text-zinc-400 {
+  color: var(--text-muted, #64748b) !important;
+}
+
+html[data-theme="white-glass"] .text-zinc-500 {
+  color: #64748b !important;
+}
+
+html[data-theme="white-glass"] .bg-black\/40,
+html[data-theme="white-glass"] .bg-black\/50,
+html[data-theme="white-glass"] .bg-black\/60 {
+  background-color: rgba(241, 245, 249, 0.85) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme="white-glass"] .bg-black\/70,
+html[data-theme="white-glass"] .bg-black\/80,
+html[data-theme="white-glass"] .bg-black\/85,
+html[data-theme="white-glass"] .bg-black {
+  background-color: #ffffff !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme="white-glass"] .border-white\/5,
+html[data-theme="white-glass"] .border-white\/10,
+html[data-theme="white-glass"] .border-white\/15,
+html[data-theme="white-glass"] .border-white\/20,
+html[data-theme="white-glass"] .border-white\/30 {
+  border-color: var(--border-subtle, rgba(15, 23, 42, 0.12)) !important;
+}
+
+html[data-theme="white-glass"] .btn-chrome {
+  background: linear-gradient(180deg, #4f46e5 0%, #4338ca 100%) !important;
+  color: #ffffff !important;
+  border-color: rgba(79, 70, 229, 0.6) !important;
+}
+
+html[data-theme="white-glass"] .btn-minimal {
+  color: #0f172a !important;
+  background: rgba(15, 23, 42, 0.05) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+html[data-theme="white-glass"] .btn-minimal:hover {
+  background: rgba(15, 23, 42, 0.1) !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="white-glass"] .chrome-badge {
+  background: rgba(15, 23, 42, 0.08) !important;
+  color: #0f172a !important;
+  border-color: rgba(15, 23, 42, 0.15) !important;
+}
+
+

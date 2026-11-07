@@ -12,11 +12,13 @@
   import { onMount } from 'svelte';
   import { currencyStore, storeFeed, type StoreItem } from '$lib/stores/store';
   import { inAppStore } from '$lib/stores/library';
+  import { storeLinkManager, type StoreOpenMode } from '$lib/utils/storeLink';
 
   let scrollRoot: HTMLElement | null = null;
   let sentinelElement: HTMLDivElement | null = $state(null);
   let hoveredCardKey = $state<string | null>(null);
   let videoFailMap = $state<Record<string, boolean>>({});
+  let imageFallbackAttempts = $state<Record<number, number>>({});
   let searchInput = $state('');
   let searchTimeout: any = null;
 
@@ -33,6 +35,18 @@
     'Open World',
     'Horror',
   ];
+
+  function getSteamImage(appId: number, initialUrl?: string): string | null {
+    const attempt = imageFallbackAttempts[appId] || 0;
+    if (attempt === 0 && initialUrl) return initialUrl;
+    if (attempt <= 1) {
+      return `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
+    }
+    if (attempt <= 2) {
+      return `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/capsule_616x353.jpg`;
+    }
+    return null;
+  }
 
   onMount(() => {
     // Initial feed fetch
@@ -80,8 +94,15 @@
     storeFeed.loadPage(0, false);
   }
 
-  function handleOpenStore(item: StoreItem) {
-    inAppStore.open(item.store_url, item.title, item.install_uri);
+  function handleOpenStore(item: StoreItem, modeOverride?: StoreOpenMode) {
+    storeLinkManager.open({
+      url: item.store_url,
+      title: item.title,
+      appId: item.app_id,
+      platform: 'steam',
+      installUri: item.install_uri,
+      mode: modeOverride,
+    });
   }
 
   const featuredItem = $derived.by(() => {
@@ -89,18 +110,18 @@
   });
 </script>
 
-<div class="space-y-6 pb-12">
-  <!-- Top Command Bar: Title, Search, Currency Switcher -->
-  <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-[#121215]/80 p-5 backdrop-blur-xl">
+<div class="space-y-6 pb-12 text-[var(--text-primary)]">
+  <!-- Top Command Bar: Title, Search, Store Open Mode, Currency Switcher -->
+  <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)]/80 p-5 backdrop-blur-xl">
     <div class="flex items-center gap-4">
       <div>
-        <h2 class="text-lg font-black tracking-tight text-white flex items-center gap-2">
+        <h2 class="text-lg font-black tracking-tight text-[var(--text-primary)] flex items-center gap-2">
           STORE
-          <span class="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-zinc-300">
+          <span class="rounded-full bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]/30 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-[var(--accent-primary)] font-bold">
             Infinite Feed
           </span>
         </h2>
-        <p class="text-xs text-zinc-400">Curated recommendations, deals, and video previews</p>
+        <p class="text-xs text-[var(--text-secondary)]">Рекомендации Steam, скидки и предпросмотр трейлеров</p>
       </div>
     </div>
 
@@ -111,11 +132,11 @@
           type="search"
           value={searchInput}
           oninput={handleSearchInput}
-          placeholder="Search Steam Store..."
-          class="w-full rounded-xl border border-white/10 bg-black/50 px-3.5 py-1.5 pl-9 text-xs text-white placeholder-zinc-500 outline-none transition-colors focus:border-white/30"
+          placeholder="Поиск по магазину Steam..."
+          class="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-canvas)]/60 px-3.5 py-1.5 pl-9 text-xs text-[var(--text-primary)] placeholder-zinc-500 outline-none transition-colors focus:border-[var(--accent-primary)]"
         />
         <svg
-          class="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500"
+          class="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-400"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -124,14 +145,48 @@
         </svg>
       </div>
 
+      <!-- Store Opening Mode Pill -->
+      <div class="flex items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-canvas)]/60 p-1 shadow-inner">
+        <button
+          type="button"
+          onclick={() => storeLinkManager.setMode('client')}
+          class="flex items-center gap-1 rounded-lg px-2.5 py-1 font-mono text-[11px] font-bold transition-all {storeLinkManager.mode === 'client'
+            ? 'bg-[var(--accent-primary)] text-white shadow-md'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+          title="Открывать в клиенте Steam (с вашей авторизацией)"
+        >
+          🎮 В клиенте
+        </button>
+        <button
+          type="button"
+          onclick={() => storeLinkManager.setMode('launcher')}
+          class="flex items-center gap-1 rounded-lg px-2.5 py-1 font-mono text-[11px] font-bold transition-all {storeLinkManager.mode === 'launcher'
+            ? 'bg-[var(--accent-primary)] text-white shadow-md'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+          title="Открывать во встроенном окне лаунчера"
+        >
+          ❐ Окно
+        </button>
+        <button
+          type="button"
+          onclick={() => storeLinkManager.setMode('browser')}
+          class="flex items-center gap-1 rounded-lg px-2.5 py-1 font-mono text-[11px] font-bold transition-all {storeLinkManager.mode === 'browser'
+            ? 'bg-[var(--accent-primary)] text-white shadow-md'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
+          title="Открывать в стандартном браузере Windows"
+        >
+          🌐 Браузер
+        </button>
+      </div>
+
       <!-- Currency Switcher Pill ($ USD / ₸ KZT) -->
-      <div class="flex items-center rounded-xl border border-white/15 bg-black/60 p-1 shadow-inner">
+      <div class="flex items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-canvas)]/60 p-1 shadow-inner">
         <button
           type="button"
           onclick={() => handleCurrencyToggle('USD')}
           class="flex items-center gap-1 rounded-lg px-2.5 py-1 font-mono text-xs font-bold transition-all {currencyStore.code === 'USD'
-            ? 'bg-white text-black shadow-md'
-            : 'text-zinc-400 hover:text-white'}"
+            ? 'bg-[var(--accent-primary)] text-white shadow-md'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
         >
           $ USD
         </button>
@@ -139,8 +194,8 @@
           type="button"
           onclick={() => handleCurrencyToggle('KZT')}
           class="flex items-center gap-1 rounded-lg px-2.5 py-1 font-mono text-xs font-bold transition-all {currencyStore.code === 'KZT'
-            ? 'bg-white text-black shadow-md'
-            : 'text-zinc-400 hover:text-white'}"
+            ? 'bg-[var(--accent-primary)] text-white shadow-md'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
         >
           ₸ KZT
         </button>
@@ -164,8 +219,8 @@
         type="button"
         onclick={() => storeFeed.setTag(tag)}
         class="shrink-0 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all {storeFeed.selectedTag === tag
-          ? 'bg-white text-black shadow-md'
-          : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white'}"
+          ? 'bg-[var(--accent-primary)] text-white shadow-md'
+          : 'border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
       >
         {tag}
       </button>
@@ -175,7 +230,7 @@
   <!-- Featured Spotlight Hero Banner (when available) -->
   {#if featuredItem && !storeFeed.searchQuery && storeFeed.selectedTag === 'All'}
     <div
-      class="group relative overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br from-[#18181b] via-[#121215] to-[#09090b] shadow-2xl transition-all"
+      class="group relative overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-gradient-to-br from-[var(--bg-surface-elevated)] via-[var(--bg-surface-base)] to-[var(--bg-canvas)] shadow-2xl transition-all"
     >
       <div class="flex flex-col lg:flex-row">
         <!-- Media Preview Area (Video or High-Res Header) -->
@@ -184,7 +239,7 @@
             {#if featuredItem.media?.mp4Video && !videoFailMap[`spotlight_${featuredItem.app_id}`]}
               <video
                 src={featuredItem.media.mp4Video}
-                poster={featuredItem.header_image}
+                poster={getSteamImage(featuredItem.app_id, featuredItem.header_image) || featuredItem.header_image}
                 autoplay
                 loop
                 muted
@@ -192,12 +247,18 @@
                 onerror={() => (videoFailMap[`spotlight_${featuredItem.app_id}`] = true)}
                 class="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
               ></video>
-            {:else if featuredItem.header_image}
-              <img
-                src={featuredItem.header_image}
-                alt={featuredItem.title}
-                class="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-              />
+            {:else}
+              {@const spotlightImg = getSteamImage(featuredItem.app_id, featuredItem.header_image)}
+              {#if spotlightImg}
+                <img
+                  src={spotlightImg}
+                  alt={featuredItem.title}
+                  onerror={() => {
+                    imageFallbackAttempts[featuredItem.app_id] = (imageFallbackAttempts[featuredItem.app_id] || 0) + 1;
+                  }}
+                  class="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+              {/if}
             {/if}
           {/key}
           <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent lg:hidden"></div>
@@ -217,17 +278,17 @@
               {/if}
             </div>
 
-            <h3 class="text-2xl font-black tracking-tight text-white">
+            <h3 class="text-2xl font-black tracking-tight text-[var(--text-primary)]">
               {featuredItem.title}
             </h3>
 
-            <p class="text-xs text-zinc-300 line-clamp-3 leading-relaxed">
-              {featuredItem.short_description || 'Experience this critically acclaimed masterpiece on Steam.'}
+            <p class="text-xs text-[var(--text-secondary)] line-clamp-3 leading-relaxed">
+              {featuredItem.short_description || 'Оцените этот шедевр в магазине Steam.'}
             </p>
 
             <div class="flex flex-wrap gap-1.5 pt-1">
               {#each featuredItem.tags.slice(0, 4) as tag}
-                <span class="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-medium text-zinc-300">
+                <span class="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
                   {tag}
                 </span>
               {/each}
@@ -235,34 +296,42 @@
           </div>
 
           <!-- Price & Install Bar -->
-          <div class="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-4">
+          <div class="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[var(--border-subtle)] pt-4">
             <div class="flex items-center gap-2.5">
               {#if featuredItem.discount_percent > 0}
-                <span class="rounded-lg bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 font-mono text-xs font-black text-emerald-300">
+                <span class="rounded-lg bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 font-mono text-xs font-black text-emerald-400">
                   -{featuredItem.discount_percent}%
                 </span>
-                <span class="font-mono text-xs text-zinc-500 line-through">
+                <span class="font-mono text-xs text-[var(--text-muted)] line-through">
                   {featuredItem.original_price_formatted}
                 </span>
               {/if}
-              <span class="font-mono text-lg font-black text-white">
+              <span class="font-mono text-lg font-black text-[var(--text-primary)]">
                 {featuredItem.price_formatted}
               </span>
             </div>
 
             <div class="flex items-center gap-2.5">
+              <button
+                type="button"
+                onclick={() => handleOpenStore(featuredItem, 'client')}
+                class="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-primary)] transition-all flex items-center gap-1.5"
+                title="Открыть в приложении Steam"
+              >
+                <span>🎮</span> В Steam
+              </button>
               <a
                 href={featuredItem.install_uri}
-                class="rounded-xl border border-white/20 bg-white/10 px-4 py-2 font-mono text-xs font-bold text-white hover:bg-white/20 transition-all shadow-sm"
+                class="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-4 py-2 font-mono text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-primary)] transition-all shadow-sm"
               >
                 INSTALL
               </a>
               <button
                 type="button"
                 onclick={() => handleOpenStore(featuredItem)}
-                class="rounded-xl bg-white px-5 py-2 text-xs font-bold text-black shadow-lg hover:bg-zinc-200 transition-all"
+                class="btn-chrome px-5 py-2 text-xs font-bold"
               >
-                STORE PAGE
+                DETAILS
               </button>
             </div>
           </div>
@@ -275,9 +344,10 @@
   <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
     {#each storeFeed.items as item, index (`${item.app_id}_${index}`)}
       {@const cardKey = `${item.app_id}_${index}`}
+      {@const cardImg = getSteamImage(item.app_id, item.header_image)}
       <div
         role="article"
-        class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/10 bg-[#121215]/90 transition-all duration-300 hover:border-white/30 hover:-translate-y-1 hover:shadow-2xl"
+        class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)] transition-all duration-300 hover:border-[var(--border-active)] hover:-translate-y-1 hover:shadow-2xl"
         onmouseenter={() => (hoveredCardKey = cardKey)}
         onmouseleave={() => {
           if (hoveredCardKey === cardKey) hoveredCardKey = null;
@@ -289,7 +359,7 @@
             {#key item.media.mp4Video}
               <video
                 src={item.media.mp4Video}
-                poster={item.header_image}
+                poster={cardImg || item.header_image}
                 autoplay
                 loop
                 muted
@@ -298,19 +368,28 @@
                 class="h-full w-full object-cover"
               ></video>
             {/key}
-          {:else if item.header_image}
+          {:else if cardImg}
             <img
-              src={item.header_image}
+              src={cardImg}
               alt={item.title}
               loading="lazy"
+              onerror={() => {
+                imageFallbackAttempts[item.app_id] = (imageFallbackAttempts[item.app_id] || 0) + 1;
+              }}
               class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             />
+          {:else}
+            <!-- High quality fallback cover -->
+            <div class="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-[var(--bg-surface-elevated)] to-[var(--bg-canvas)] p-4 text-center">
+              <span class="text-xs font-mono font-bold text-[var(--accent-primary)] mb-1">STEAM #{item.app_id}</span>
+              <span class="text-xs font-bold text-[var(--text-primary)] line-clamp-2">{item.title}</span>
+            </div>
           {/if}
 
           <!-- Discount Badge Overlay -->
           {#if item.discount_percent === 100}
             <div class="absolute top-2 left-2 rounded-lg bg-emerald-500 px-2 py-0.5 font-mono text-[10px] font-black text-black shadow-md">
-              FREE PROMOTION (-100%)
+              БЕСПЛАТНО (-100%)
             </div>
           {:else if item.discount_percent > 0}
             <div class="absolute top-2 left-2 rounded-lg bg-emerald-500/90 px-2 py-0.5 font-mono text-[10px] font-black text-white shadow-md">
@@ -322,19 +401,19 @@
         <!-- Card Content Body -->
         <div class="flex flex-1 flex-col justify-between p-4 space-y-3">
           <div class="space-y-1.5">
-            <h4 class="font-bold text-sm text-white group-hover:text-amber-300 transition-colors line-clamp-1" title={item.title}>
+            <h4 class="font-bold text-sm text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors line-clamp-1" title={item.title}>
               {item.title}
             </h4>
 
             {#if item.review_score}
-              <p class="font-mono text-[11px] text-zinc-400">
+              <p class="font-mono text-[11px] text-[var(--text-secondary)]">
                 ★ {item.review_score}
               </p>
             {/if}
 
             <div class="flex flex-wrap gap-1 pt-1">
               {#each item.tags.slice(0, 3) as tag}
-                <span class="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">
+                <span class="rounded bg-white/5 border border-white/5 px-1.5 py-0.5 font-mono text-[9px] text-[var(--text-secondary)]">
                   {tag}
                 </span>
               {/each}
@@ -342,22 +421,31 @@
           </div>
 
           <!-- Bottom Price & Actions Bar -->
-          <div class="flex items-center justify-between border-t border-white/5 pt-3">
+          <div class="flex items-center justify-between border-t border-[var(--border-subtle)] pt-3">
             <div class="flex flex-col">
               {#if item.discount_percent > 0 && item.original_price_formatted}
-                <span class="font-mono text-[10px] text-zinc-500 line-through">
+                <span class="font-mono text-[10px] text-[var(--text-muted)] line-through">
                   {item.original_price_formatted}
                 </span>
               {/if}
-              <span class="font-mono text-xs font-black {item.price_raw === 0 ? 'text-emerald-400' : 'text-white'}">
+              <span class="font-mono text-xs font-black {item.price_raw === 0 ? 'text-emerald-400' : 'text-[var(--text-primary)]'}">
                 {item.price_formatted}
               </span>
             </div>
 
             <div class="flex items-center gap-1.5">
+              <!-- Quick 1-click open in Steam client -->
+              <button
+                type="button"
+                onclick={() => handleOpenStore(item, 'client')}
+                class="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-1 text-[var(--text-secondary)] hover:text-[var(--accent-primary)] hover:border-[var(--accent-primary)] transition-colors"
+                title="Открыть прямо в приложении Steam"
+              >
+                <svg class="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12c0 4.19 2.58 7.78 6.24 9.25l2.42-3.48A4.954 4.954 0 0 1 10 15c0-.62.11-1.21.32-1.76L8.43 11.8A7.03 7.03 0 0 1 12 5c3.87 0 7 3.13 7 7 0 3.2-2.15 5.9-5.11 6.74l1.17 1.68C18.9 19.16 22 15.93 22 12c0-5.53-4.47-10-10-10zm0 5a5 5 0 0 0-4.9 4.02l2.49 1.74A2.99 2.99 0 0 1 12 11c1.66 0 3 1.34 3 3 0 .76-.28 1.45-.75 1.98l2.4 1.68A5.002 5.002 0 0 0 12 7z"/></svg>
+              </button>
               <a
                 href={item.install_uri}
-                class="rounded-lg border border-white/10 bg-white/5 px-2 py-1 font-mono text-[10px] font-bold text-zinc-200 hover:bg-white/20 transition-colors"
+                class="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2 py-1 font-mono text-[10px] font-bold text-[var(--text-primary)] hover:border-[var(--accent-primary)] transition-colors"
                 title="Direct Steam Install"
               >
                 INSTALL
@@ -365,7 +453,7 @@
               <button
                 type="button"
                 onclick={() => handleOpenStore(item)}
-                class="rounded-lg bg-white px-2.5 py-1 text-[10px] font-bold text-black hover:bg-zinc-200 transition-colors"
+                class="btn-chrome px-2.5 py-1 text-[10px] font-bold"
               >
                 DETAILS
               </button>
@@ -379,20 +467,20 @@
   <!-- Loading Spinner -->
   {#if storeFeed.loading}
     <div class="flex justify-center py-8">
-      <div class="h-7 w-7 animate-spin rounded-full border-2 border-white/20 border-t-white"></div>
+      <div class="h-7 w-7 animate-spin rounded-full border-2 border-[var(--border-subtle)] border-t-[var(--accent-primary)]"></div>
     </div>
   {/if}
 
   <!-- Catalog Exhaustion Banner -->
   {#if !storeFeed.hasMore && storeFeed.endMessage}
-    <div class="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/[0.02] p-8 text-center">
-      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-zinc-400 mb-2">
+    <div class="flex flex-col items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-base)]/50 p-8 text-center">
+      <div class="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] mb-2">
         ✓
       </div>
-      <p class="font-semibold text-sm text-white">
+      <p class="font-semibold text-sm text-[var(--text-primary)]">
         {storeFeed.endMessage}
       </p>
-      <p class="text-xs text-zinc-500 mt-1">Check back tomorrow for refreshed daily picks and specials</p>
+      <p class="text-xs text-[var(--text-secondary)] mt-1">Возвращайтесь завтра за обновленными рекомендациями</p>
     </div>
   {/if}
 
